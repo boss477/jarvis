@@ -1,5 +1,7 @@
 """Friday tool server: one FastMCP instance, all tools registered flat, HTTP @ /mcp/."""
 
+import os
+
 from fastmcp import FastMCP
 
 from . import apps, files, shell, system
@@ -26,4 +28,7 @@ EXPECTED_TOOL_NAMES = [fn.__name__ for fn in _TOOLS]
 if __name__ == "__main__":
     # Loopback only — shell.py exposes a full shell. NEVER bind 0.0.0.0.
     # Port 8765 (not 8000) — 8000 was occupied by other local dev servers.
-    mcp.run(transport="http", host="127.0.0.1", port=8765, path="/mcp/")
+    # FRIDAY_MCP_PORT overrides it (tests use a separate port to avoid colliding
+    # with a running instance).
+    port = int(os.getenv("FRIDAY_MCP_PORT", "8765"))
+    mcp.run(transport="http", host="127.0.0.1", port=port, path="/mcp/")

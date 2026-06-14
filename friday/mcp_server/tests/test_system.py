@@ -28,11 +28,9 @@ def test_endpoint_initializes_com(monkeypatch):
     monkeypatch.setattr(system.comtypes, "CoInitialize", lambda: called.setdefault("co", True))
 
     class FakeSpeakers:
-        def Activate(self, *a):
-            return object()
+        EndpointVolume = "EP"
 
     monkeypatch.setattr(system.AudioUtilities, "GetSpeakers", lambda: FakeSpeakers())
-    monkeypatch.setattr(system, "cast", lambda iface, t: "EP")
     assert system._endpoint() == "EP"
     assert called.get("co") is True
 

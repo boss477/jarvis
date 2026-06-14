@@ -1,4 +1,5 @@
 import asyncio
+import os
 import socket
 import subprocess
 import sys
@@ -8,7 +9,10 @@ import pytest
 from mcp.client.session_group import StreamableHttpParameters
 from pipecat.services.mcp_service import MCPClient
 
-URL = "http://127.0.0.1:8765/mcp/"
+# Use a dedicated test port so the suite never collides with a running
+# Friday instance (run_friday.ps1 uses the default 8765).
+TEST_PORT = 8766
+URL = f"http://127.0.0.1:{TEST_PORT}/mcp/"
 
 
 def _port_open(port: int) -> bool:
@@ -21,13 +25,14 @@ def _port_open(port: int) -> bool:
 
 @pytest.fixture(scope="module")
 def server():
-    proc = subprocess.Popen([sys.executable, "-m", "friday.mcp_server"])
+    env = {**os.environ, "FRIDAY_MCP_PORT": str(TEST_PORT)}
+    proc = subprocess.Popen([sys.executable, "-m", "friday.mcp_server"], env=env)
     deadline = time.time() + 30
-    while time.time() < deadline and not _port_open(8765):
+    while time.time() < deadline and not _port_open(TEST_PORT):
         time.sleep(0.3)
-    if not _port_open(8765):
+    if not _port_open(TEST_PORT):
         proc.terminate()
-        pytest.fail("tool server did not start on port 8765")
+        pytest.fail(f"tool server did not start on port {TEST_PORT}")
     yield
     proc.terminate()
     proc.wait(timeout=10)

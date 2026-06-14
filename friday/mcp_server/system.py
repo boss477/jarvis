@@ -1,12 +1,10 @@
 """System control: volume, brightness, media, lock/sleep/power."""
 
 import subprocess
-from ctypes import POINTER, cast
 
 import comtypes
-from comtypes import CLSCTX_ALL
 from pynput.keyboard import Key
-from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+from pycaw.pycaw import AudioUtilities
 
 from . import safety
 from ._keyboard import kbd
@@ -18,12 +16,11 @@ def _endpoint():
     FastMCP runs each tool in a worker thread, and COM must be initialized on
     the calling thread before pycaw can use it — otherwise CoCreateInstance
     fails with 'CoInitialize has not been called'. CoInitialize is idempotent
-    (ref-counted), so calling it per use is safe.
+    (ref-counted), so calling it per use is safe. pycaw's AudioDevice exposes
+    the IAudioEndpointVolume interface directly via .EndpointVolume.
     """
     comtypes.CoInitialize()
-    speakers = AudioUtilities.GetSpeakers()
-    iface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    return cast(iface, POINTER(IAudioEndpointVolume))
+    return AudioUtilities.GetSpeakers().EndpointVolume
 
 
 def set_volume(level: int) -> str:
