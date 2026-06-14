@@ -1,0 +1,50 @@
+[project]
+name = "friday"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "fastmcp>=3.4.2",
+    "groq>=1.4.0",
+    "httpx>=0.28.1",
+    "kokoro-onnx>=0.5.0",
+    "numpy>=2.4.6",
+    "onnxruntime-gpu==1.26.0",
+    "pipecat-ai>=1.3.0",
+    "pyaudio>=0.2.14",
+    "pycaw>=20251023",
+    "pynput>=1.8.2",
+    "python-dotenv>=1.2.2",
+    "sounddevice>=0.5.5",
+    "supertonic>=1.3.1",
+    "torch==2.5.1",
+    "torchaudio==2.5.1",
+    "torchvision==0.20.1",
+]
+
+# torch+cu121 (and matching torchaudio/torchvision) carry the CUDA 12 + cuDNN 9
+# DLLs that onnxruntime-gpu needs. Pull them from PyTorch's CUDA wheel index
+# instead of PyPI's CPU-only wheels. `explicit` keeps this index from being used
+# for anything except the packages mapped below.
+[tool.uv.sources]
+torch = { index = "pytorch-cu121" }
+torchaudio = { index = "pytorch-cu121" }
+torchvision = { index = "pytorch-cu121" }
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+# Scope collection to our tests; the parked CosyVoice tree has unrelated test
+# files with heavy imports (tensorrt_llm etc.) that must not be collected.
+testpaths = ["friday/mcp_server/tests"]
+asyncio_mode = "strict"
