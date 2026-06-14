@@ -21,6 +21,22 @@ class FakeEndpoint:
         self.muted = v
 
 
+def test_endpoint_initializes_com(monkeypatch):
+    # Regression: tool runs in a FastMCP worker thread; COM must be initialized
+    # there or pycaw fails with "CoInitialize has not been called".
+    called = {}
+    monkeypatch.setattr(system.comtypes, "CoInitialize", lambda: called.setdefault("co", True))
+
+    class FakeSpeakers:
+        def Activate(self, *a):
+            return object()
+
+    monkeypatch.setattr(system.AudioUtilities, "GetSpeakers", lambda: FakeSpeakers())
+    monkeypatch.setattr(system, "cast", lambda iface, t: "EP")
+    assert system._endpoint() == "EP"
+    assert called.get("co") is True
+
+
 def test_set_volume_valid(monkeypatch):
     fake = FakeEndpoint()
     monkeypatch.setattr(system, "_endpoint", lambda: fake)

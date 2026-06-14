@@ -24,6 +24,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.services.openrouter.llm import OpenRouterLLMService
+from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.mcp_service import MCPClient
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 from pipecat.services.whisper.stt import WhisperSTTService
@@ -69,10 +70,21 @@ async def main():
         language=Language.EN,
     )
 
-    llm = OpenRouterLLMService(
-        api_key=os.environ["OPENROUTER_API_KEY"],
-        model=os.getenv("LLM_MODEL", "nex-agi/nex-n2-pro:free"),
-    )
+    # LLM provider is chosen by LLM_BASE_URL: OpenRouter (cloud) vs any local
+    # OpenAI-compatible server (LM Studio :1234, Ollama :11434). Both speak the
+    # OpenAI API, so tools/function-calling work the same way.
+    llm_base_url = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    if "openrouter" in llm_base_url:
+        llm = OpenRouterLLMService(
+            api_key=os.environ["OPENROUTER_API_KEY"],
+            model=os.getenv("LLM_MODEL", "nex-agi/nex-n2-pro:free"),
+        )
+    else:
+        llm = OpenAILLMService(
+            api_key=os.getenv("LLM_API_KEY", "local"),
+            base_url=llm_base_url,
+            model=os.getenv("LLM_MODEL", "local-model"),
+        )
 
     tts = KokoroTTSService(voice="am_michael")
 

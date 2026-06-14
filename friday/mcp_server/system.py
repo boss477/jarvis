@@ -3,6 +3,7 @@
 import subprocess
 from ctypes import POINTER, cast
 
+import comtypes
 from comtypes import CLSCTX_ALL
 from pynput.keyboard import Key
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
@@ -12,7 +13,14 @@ from ._keyboard import kbd
 
 
 def _endpoint():
-    """Return the default audio endpoint volume interface (pycaw)."""
+    """Return the default audio endpoint volume interface (pycaw).
+
+    FastMCP runs each tool in a worker thread, and COM must be initialized on
+    the calling thread before pycaw can use it — otherwise CoCreateInstance
+    fails with 'CoInitialize has not been called'. CoInitialize is idempotent
+    (ref-counted), so calling it per use is safe.
+    """
+    comtypes.CoInitialize()
     speakers = AudioUtilities.GetSpeakers()
     iface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
     return cast(iface, POINTER(IAudioEndpointVolume))
