@@ -77,18 +77,32 @@ async def main():
     tts = KokoroTTSService(voice="am_michael")
 
     # Connect to the standalone tool server and register its tools on the LLM.
-    # The server must already be running (run_friday.ps1 guarantees ordering).
+    # run_friday.ps1 starts the server first; if it isn't reachable, degrade
+    # gracefully to a plain voice assistant rather than crashing. (CancelledError
+    # is caught too: pipecat's connect surfaces one on a cold port.)
     mcp = MCPClient(
         StreamableHttpParameters(url=os.environ["MCP_URL"]),
         tools_output_filters={"run_powershell": _trunc, "search_files": _trunc},
     )
-    await mcp.start()
-    tools = await mcp.register_tools(llm)
+    tools = None
+    try:
+        await mcp.start()
+        tools = await mcp.register_tools(llm)
+        logger.info("Tool server connected — computer-control tools enabled.")
+    except (Exception, asyncio.CancelledError) as e:
+        logger.warning(
+            f"Tool server unreachable at {os.environ['MCP_URL']} ({type(e).__name__}); "
+            "running WITHOUT computer-control tools. Use run_friday.ps1 to enable them."
+        )
+        mcp = None
 
-    context = LLMContext(
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}],
-        tools=tools,
-    )
+    if tools is not None:
+        context = LLMContext(
+            messages=[{"role": "system", "content": SYSTEM_PROMPT}],
+            tools=tools,
+        )
+    else:
+        context = LLMContext(messages=[{"role": "system", "content": SYSTEM_PROMPT}])
     # PTT is the sole turn authority: turns start/stop on the frames our
     # PushToTalkProcessor emits — no VAD, no smart-turn analyzer, no silence timer.
     agg = LLMContextAggregatorPair(
@@ -118,7 +132,8 @@ async def main():
     try:
         await runner.run(task)
     finally:
-        await mcp.close()  # session must live the whole app; close only on shutdown
+        if mcp is not None:
+            await mcp.close()  # session must live the whole app; close only on shutdown
 
 
 if __name__ == "__main__":
