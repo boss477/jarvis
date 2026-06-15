@@ -22,7 +22,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from friday.services.vision_capture import capture_screen_data_url
+from .vision_capture import capture_screen_data_url
 
 
 @dataclass

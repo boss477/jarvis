@@ -34,6 +34,7 @@ from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransp
 
 from services.ptt import PushToTalkProcessor
 from services.kokoro_tts import KokoroTTSService
+from services.vision import VisionState, VisionPTTProcessor, VisionContextInjector
 
 load_dotenv(HERE / ".env")
 
@@ -123,14 +124,19 @@ async def main():
             user_turn_strategies=ExternalUserTurnStrategies()
         ),
     )
-    ptt = PushToTalkProcessor()
+    vision_state = VisionState()
+    ptt = PushToTalkProcessor(vision_state=vision_state)
+    vision_ptt = VisionPTTProcessor(state=vision_state, key_name=os.getenv("VISION_KEY", "ctrl_r"))
+    vision_injector = VisionContextInjector(state=vision_state)
 
     pipeline = Pipeline(
         [
             transport.input(),
             ptt,
+            vision_ptt,
             stt,
             agg.user(),
+            vision_injector,
             llm,
             tts,
             transport.output(),
