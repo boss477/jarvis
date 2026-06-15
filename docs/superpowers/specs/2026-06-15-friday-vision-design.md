@@ -60,9 +60,13 @@ message. Different pipeline positions → two focused units sharing one small st
 **`friday/services/vision.py`** — three small pieces:
 - `VisionState`: a dataclass with `pending_url: str | None = None`. Shared by all parties.
 - `VisionPTTProcessor(FrameProcessor)`: pynput listener on the vision hotkey.
-  - On press (not already active): `state.pending_url = None` (re-arm), then capture →
-    `state.pending_url = <data url>`; emit `UserStartedSpeakingFrame` +
-    `VADUserStartedSpeakingFrame` (mic opens, mirrors PTT).
+  - On press (not already active), in this order: (1) `state.pending_url = None` (re-arm);
+    (2) **emit `UserStartedSpeakingFrame` + `VADUserStartedSpeakingFrame` immediately** so
+    the mic/STT buffer opens with no lag; (3) kick the screen capture in the background and
+    set `state.pending_url = <data url>` when it completes. Capture must NOT block the
+    speaking-start frames — otherwise the JPEG encode (tens of ms) delays mic-open and the
+    user's first word can be clipped. The capture still finishes during the speaking
+    window, so `pending_url` is set well before aggregation reaches the injector.
   - On release: emit `VADUserStoppedSpeakingFrame` + `UserStoppedSpeakingFrame`.
   - Other keys ignored. Listener started on `StartFrame`, stopped in `cleanup()`.
 - `VisionContextInjector(FrameProcessor)`: placed after `agg.user()`.
@@ -82,11 +86,13 @@ after `agg.user()` (before `llm`); read `VISION_KEY` from env.
 
 ## 4. Capture timing — on PRESS (race fix)
 
-The screenshot is captured on **key press**, not release. Rationale:
+The screenshot is captured on **key press** (kicked off in the background *after* the
+speaking-start frames are emitted — see §3), not on release. Rationale:
 - At press time the screen already shows what the user is asking about.
 - Press-capture gives the entire speaking duration for the off-loop capture to finish, so
   `pending_url` is reliably set before STT → aggregation → the injector runs. Capturing on
   *release* would race STT and could miss the turn (image dropped or attached to the next turn).
+- Capture runs in the background so it never delays mic-open (no clipped first word).
 
 Trade-off (accepted): pixels are from press-time, not release. Fine — the user asks about
 what they're looking at when they start, and they're speaking (not changing the screen) in between.
@@ -168,8 +174,11 @@ turns are byte-for-byte unchanged.
 ---
 
 ## 9. Open Items for the Implementation Plan
-- Exact context-frame type emitted by `agg.user()` that the injector keys on (confirm the
-  class in Pipecat 1.3 — `LLMContextFrame`/`OpenAILLMContextFrame` — during the plan).
+- **MUST VERIFY FIRST (load-bearing, same gate as `create_image_url_message`):** the exact
+  context-frame class emitted by `agg.user()` that triggers the LLM and that the injector
+  keys on (Pipecat 1.3 — `LLMContextFrame` / `OpenAILLMContextFrame` / other). If misidentified,
+  the injector fires on the wrong frame or never. The plan's first task verifies this against
+  the installed source before any injector code is written.
 - `VISION_KEY` string → `pynput.keyboard.Key` parsing (map a few friendly names; default `ctrl_r`).
 - Whether `vision_ptt` and `ptt` running two separate pynput listeners is preferable to one
   shared listener (default: two, mirroring the existing per-processor pattern).
