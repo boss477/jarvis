@@ -7,4 +7,5 @@ async def test_all_expected_tools_registered():
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
     assert names == set(EXPECTED_TOOL_NAMES)
-    assert len(EXPECTED_TOOL_NAMES) == 21
+    assert len(EXPECTED_TOOL_NAMES) == 25
+    assert {"list_windows", "focus_window", "minimize_window", "maximize_window"} <= set(EXPECTED_TOOL_NAMES)

@@ -13,7 +13,7 @@ def run_powershell(command: str) -> str:
     def _do() -> str:
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=120,
         )
         out = (proc.stdout or "") + (proc.stderr or "")
         return out.strip() or f"(exit {proc.returncode}, no output)"

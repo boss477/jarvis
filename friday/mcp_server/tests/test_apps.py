@@ -30,6 +30,17 @@ def test_web_search_builds_query_url(monkeypatch):
     assert "q=hello+world" in opened["url"]
 
 
+def test_open_app_new_mappings(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(apps.subprocess, "Popen", lambda args, **kw: captured.setdefault("args", args))
+    apps.open_app("word")
+    assert "winword" in captured["args"]
+    captured.clear()
+    monkeypatch.setattr(apps.subprocess, "Popen", lambda args, **kw: captured.setdefault("args", args))
+    apps.open_app("task manager")
+    assert "taskmgr" in captured["args"]
+
+
 def test_close_app_reports_failure_cleanly(monkeypatch):
     class FakeProc:
         returncode = 1

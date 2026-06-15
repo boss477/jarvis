@@ -31,3 +31,21 @@ def test_run_powershell_confirm_executes(monkeypatch):
     shell.run_powershell("echo hello")
     out = safety.confirm_action(safety._pending.id)
     assert "hello" in out
+
+
+def test_run_powershell_timeout_is_120(monkeypatch):
+    captured = {}
+
+    class FakeProc:
+        stdout = "ok"
+        stderr = ""
+        returncode = 0
+
+    def fake_run(*a, **k):
+        captured.update(k)
+        return FakeProc()
+
+    monkeypatch.setattr(shell.subprocess, "run", fake_run)
+    shell.run_powershell("echo ok")
+    safety.confirm_action(safety._pending.id)
+    assert captured.get("timeout") == 120

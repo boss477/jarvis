@@ -9,14 +9,22 @@ APP_MAP = {
     "chrome": "chrome",
     "google chrome": "chrome",
     "spotify": "spotify",
+    "discord": "discord",
     "vs code": "code",
     "vscode": "code",
     "code": "code",
     "notepad": "notepad",
     "explorer": "explorer",
     "file explorer": "explorer",
+    "files": "explorer",
     "calculator": "calc",
     "calc": "calc",
+    "word": "winword",
+    "excel": "excel",
+    "powerpoint": "powerpnt",
+    "settings": "ms-settings:",
+    "terminal": "wt",
+    "task manager": "taskmgr",
 }
 
 

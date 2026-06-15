@@ -44,7 +44,9 @@ SYSTEM_PROMPT = (
     "points, code blocks, or emoji. You can control this computer with tools. If a "
     "tool reply starts with CONFIRM_REQUIRED, read the action aloud and ask the user "
     "to say confirm or cancel; when they confirm, call confirm_action with the id "
-    "shown in brackets; if they decline, call cancel_action."
+    "shown in brackets; if they decline, call cancel_action. For any task that has no "
+    "dedicated tool, accomplish it by writing one PowerShell command and calling "
+    "run_powershell."
 )
 
 
@@ -115,7 +117,11 @@ async def main():
         try:
             mcp = MCPClient(
                 StreamableHttpParameters(url=mcp_url),
-                tools_output_filters={"run_powershell": _trunc, "search_files": _trunc},
+                tools_output_filters={
+            "run_powershell": _trunc,
+            "search_files": _trunc,
+            "list_windows": _trunc,
+        },
             )
             await mcp.start()
             tools = await mcp.register_tools(llm)
