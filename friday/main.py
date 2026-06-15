@@ -169,7 +169,11 @@ async def main():
     if os.getenv("WAKE_WORD", "1") != "0":
         from pipecat.audio.vad.silero import SileroVADAnalyzer
 
-        wake = WakeWordProcessor(vad_analyzer=SileroVADAnalyzer(sample_rate=16000))
+        wake = WakeWordProcessor(
+            vad_analyzer=SileroVADAnalyzer(sample_rate=16000),
+            threshold=float(os.getenv("WAKE_THRESHOLD", "0.3")),
+            model_name=os.getenv("WAKE_MODEL", "hey_jarvis"),
+        )
 
     pipeline = Pipeline(
         [
