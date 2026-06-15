@@ -54,6 +54,21 @@ def _trunc(result):
     return s if len(s) <= 2000 else s[:2000] + " …(truncated)"
 
 
+def _server_reachable(url: str) -> bool:
+    """Quick TCP check so we never call MCPClient.start() against a cold port —
+    a failed start() leaves an orphaned anyio cancel scope that later crashes
+    the event loop."""
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    try:
+        with socket.create_connection((parsed.hostname, parsed.port or 80), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
 async def main():
     transport = LocalAudioTransport(
         LocalAudioTransportParams(
@@ -90,24 +105,30 @@ async def main():
     tts = KokoroTTSService(voice="am_michael")
 
     # Connect to the standalone tool server and register its tools on the LLM.
-    # run_friday.ps1 starts the server first; if it isn't reachable, degrade
-    # gracefully to a plain voice assistant rather than crashing. (CancelledError
-    # is caught too: pipecat's connect surfaces one on a cold port.)
-    mcp = MCPClient(
-        StreamableHttpParameters(url=os.environ["MCP_URL"]),
-        tools_output_filters={"run_powershell": _trunc, "search_files": _trunc},
-    )
+    # We only call start() when the port is actually open: a failed start()
+    # against a cold server poisons the event loop (orphaned anyio cancel scope
+    # → later crash). If the server is down, run as a plain voice assistant.
+    mcp_url = os.environ["MCP_URL"]
+    mcp = None
     tools = None
-    try:
-        await mcp.start()
-        tools = await mcp.register_tools(llm)
-        logger.info("Tool server connected — computer-control tools enabled.")
-    except (Exception, asyncio.CancelledError) as e:
+    if _server_reachable(mcp_url):
+        try:
+            mcp = MCPClient(
+                StreamableHttpParameters(url=mcp_url),
+                tools_output_filters={"run_powershell": _trunc, "search_files": _trunc},
+            )
+            await mcp.start()
+            tools = await mcp.register_tools(llm)
+            logger.info("Tool server connected — computer-control tools enabled.")
+        except Exception as e:
+            logger.warning(f"Tool server handshake failed ({type(e).__name__}); running without tools.")
+            mcp = None
+            tools = None
+    else:
         logger.warning(
-            f"Tool server unreachable at {os.environ['MCP_URL']} ({type(e).__name__}); "
-            "running WITHOUT computer-control tools. Use run_friday.ps1 to enable them."
+            f"Tool server not reachable at {mcp_url}; running WITHOUT computer-control "
+            "tools. Use run_friday.ps1 to start the server first."
         )
-        mcp = None
 
     if tools is not None:
         context = LLMContext(
