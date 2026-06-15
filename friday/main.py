@@ -1,6 +1,6 @@
 """Friday v1 — local push-to-talk voice assistant.
 
-Pipeline: SPACE (PTT) -> Whisper STT -> OpenRouter LLM -> Supertonic TTS -> speakers.
+Pipeline: SPACE (PTT) -> Whisper STT -> OpenRouter LLM -> Kokoro TTS -> speakers.
 No computer-control tools yet (added later via MCP).
 """
 
@@ -47,7 +47,9 @@ SYSTEM_PROMPT = (
     "to say confirm or cancel; when they confirm, call confirm_action with the id "
     "shown in brackets; if they decline, call cancel_action. For any task that has no "
     "dedicated tool, accomplish it by writing one PowerShell command and calling "
-    "run_powershell."
+    "run_powershell. "
+    "When an image is attached it is a screenshot of the user's screen — describe what "
+    "you actually see in it; never say you cannot see the screen."
 )
 
 
