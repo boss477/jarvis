@@ -4,7 +4,7 @@ import os
 
 from fastmcp import FastMCP
 
-from . import apps, files, shell, system, sysinfo, uia, windows
+from . import apps, browser, files, shell, system, sysinfo, uia, windows
 from . import input as input_tools
 from . import safety
 
@@ -20,6 +20,8 @@ _TOOLS = [
     windows.list_windows, windows.focus_window, windows.minimize_window, windows.maximize_window,
     input_tools.type_text, input_tools.press_hotkey,
     uia.click_element, uia.list_elements,
+    browser.browser_open, browser.browser_read, browser.browser_click,
+    browser.browser_fill, browser.browser_close,
     safety.confirm_action, safety.cancel_action,
 ]
 

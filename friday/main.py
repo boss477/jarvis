@@ -122,6 +122,7 @@ async def main():
             "search_files": _trunc,
             "list_windows": _trunc,
             "list_elements": _trunc,
+            "browser_read": _trunc,
         },
             )
             await mcp.start()
