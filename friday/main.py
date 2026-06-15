@@ -35,6 +35,7 @@ from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransp
 from services.ptt import PushToTalkProcessor
 from services.kokoro_tts import KokoroTTSService
 from services.vision import VisionState, VisionPTTProcessor, VisionContextInjector
+from services.wakeword import WakeWordProcessor
 
 load_dotenv(HERE / ".env")
 
@@ -158,18 +159,30 @@ async def main():
     vision_ptt = VisionPTTProcessor(state=vision_state, key_name=os.getenv("VISION_KEY", "f9"))
     vision_injector = VisionContextInjector(state=vision_state)
 
+    # Hands-free wake word ("hey jarvis") alongside SPACE. Sits after PTT so it
+    # observes PTT turns and stays dormant during them; Silero VAD ends the
+    # wake-word turn on silence. Disable with WAKE_WORD=0.
+    wake = None
+    if os.getenv("WAKE_WORD", "1") != "0":
+        from pipecat.audio.vad.silero import SileroVADAnalyzer
+
+        wake = WakeWordProcessor(vad_analyzer=SileroVADAnalyzer(sample_rate=16000))
+
     pipeline = Pipeline(
         [
-            transport.input(),
-            ptt,
-            vision_ptt,
-            stt,
-            agg.user(),
-            vision_injector,
-            llm,
-            tts,
-            transport.output(),
-            agg.assistant(),
+            p for p in [
+                transport.input(),
+                ptt,
+                wake,
+                vision_ptt,
+                stt,
+                agg.user(),
+                vision_injector,
+                llm,
+                tts,
+                transport.output(),
+                agg.assistant(),
+            ] if p is not None
         ]
     )
 
