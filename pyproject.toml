@@ -22,6 +22,7 @@ dependencies = [
     "torch==2.5.1",
     "torchaudio==2.5.1",
     "torchvision==0.20.1",
+    "pywinauto>=0.6.9",
 ]
 
 # torch+cu121 (and matching torchaudio/torchvision) carry the CUDA 12 + cuDNN 9

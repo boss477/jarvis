@@ -4,7 +4,7 @@ import os
 
 from fastmcp import FastMCP
 
-from . import apps, files, shell, system, sysinfo, windows
+from . import apps, files, shell, system, sysinfo, uia, windows
 from . import input as input_tools
 from . import safety
 
@@ -19,6 +19,7 @@ _TOOLS = [
     shell.run_powershell,
     windows.list_windows, windows.focus_window, windows.minimize_window, windows.maximize_window,
     input_tools.type_text, input_tools.press_hotkey,
+    uia.click_element, uia.list_elements,
     safety.confirm_action, safety.cancel_action,
 ]
 

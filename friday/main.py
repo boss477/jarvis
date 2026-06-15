@@ -121,6 +121,7 @@ async def main():
             "run_powershell": _trunc,
             "search_files": _trunc,
             "list_windows": _trunc,
+            "list_elements": _trunc,
         },
             )
             await mcp.start()
