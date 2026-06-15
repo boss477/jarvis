@@ -65,12 +65,18 @@ on the visible window title; the first match wins.
 | Tool | Behaviour | user32 call |
 |---|---|---|
 | `list_windows()` | Newline-joined visible window titles (or "No visible windows.") | enumerate |
-| `focus_window(title)` | `ShowWindow(hwnd, SW_RESTORE)` then `SetForegroundWindow(hwnd)` | restore + foreground |
+| `focus_window(title)` | `ShowWindow(hwnd, SW_RESTORE)` then `SetForegroundWindow(hwnd)`; **honest about the result** (see note) | restore + foreground |
 | `minimize_window(title)` | `ShowWindow(hwnd, SW_MINIMIZE)` | minimize |
 | `maximize_window(title)` | `ShowWindow(hwnd, SW_MAXIMIZE)` | maximize |
 
 Constants: `SW_MAXIMIZE = 3`, `SW_MINIMIZE = 6`, `SW_RESTORE = 9`.
 No-match → returns `"No window matching '<title>'."` (clean string, never raises).
+
+**`focus_window` honesty:** Windows often blocks foreground-steal, so
+`SetForegroundWindow` can return 0 (failure) even though the call "ran". `focus_window`
+checks the return value: success → `"Focused '<title>'."`; failure → `"Brought '<title>'
+forward; you may need to click it."` — never reports a focus that didn't happen. (The
+common `AttachThreadInput` workaround is deferred; the honest message is enough for v1.)
 `list_windows` output is truncated client-side by the existing `_trunc` filter (added to
 `tools_output_filters` in `main.py`).
 
@@ -149,3 +155,6 @@ expected set.
   (set `restype`/`argtypes` to avoid pointer-truncation of `hwnd` on Win64) — verify in the
   plan's first task.
 - Final `APP_MAP` additions list.
+- Substring match ambiguity: "chrome" may match several Chrome windows and first-match
+  wins, while `list_windows` output is client-truncated so the user can't always see the
+  full candidate list. Accepted for v1 (first-match); revisit if it proves annoying.
