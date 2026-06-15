@@ -56,3 +56,32 @@ def test_resolve_vision_key_modifier():
 def test_resolve_vision_key_single_char():
     from pynput import keyboard
     assert vision.resolve_vision_key("v") == keyboard.KeyCode.from_char("v")
+
+
+@pytest.mark.asyncio
+async def test_capture_and_store_sets_url(monkeypatch):
+    state = vision.VisionState()
+    proc = vision.VisionPTTProcessor(state=state, key_name="ctrl_r")
+    monkeypatch.setattr(vision, "capture_screen_data_url",
+                        lambda: _async_return("data:image/jpeg;base64,ZZZ"))
+    await proc._capture_and_store()
+    assert state.pending_url == "data:image/jpeg;base64,ZZZ"
+
+
+@pytest.mark.asyncio
+async def test_capture_and_store_failure_clears(monkeypatch):
+    state = vision.VisionState(pending_url="stale")
+
+    async def boom():
+        raise RuntimeError("no screen")
+
+    proc = vision.VisionPTTProcessor(state=state, key_name="ctrl_r")
+    monkeypatch.setattr(vision, "capture_screen_data_url", boom)
+    await proc._capture_and_store()
+    assert state.pending_url is None  # cleared, no raise
+
+
+def _async_return(value):
+    async def _coro():
+        return value
+    return _coro()
