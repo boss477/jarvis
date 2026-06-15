@@ -147,7 +147,7 @@ async def main():
     )
     vision_state = VisionState()
     ptt = PushToTalkProcessor(vision_state=vision_state)
-    vision_ptt = VisionPTTProcessor(state=vision_state, key_name=os.getenv("VISION_KEY", "ctrl_r"))
+    vision_ptt = VisionPTTProcessor(state=vision_state, key_name=os.getenv("VISION_KEY", "f9"))
     vision_injector = VisionContextInjector(state=vision_state)
 
     pipeline = Pipeline(
