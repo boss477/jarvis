@@ -4,7 +4,7 @@ import os
 
 from fastmcp import FastMCP
 
-from . import apps, files, shell, system
+from . import apps, files, shell, system, windows
 from . import input as input_tools
 from . import safety
 
@@ -16,6 +16,7 @@ _TOOLS = [
     system.lock_screen, system.sleep_pc, system.power_action,
     files.open_path, files.search_files, files.create_folder, files.delete_path, files.move_path,
     shell.run_powershell,
+    windows.list_windows, windows.focus_window, windows.minimize_window, windows.maximize_window,
     input_tools.type_text, input_tools.press_hotkey,
     safety.confirm_action, safety.cancel_action,
 ]
