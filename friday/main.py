@@ -172,7 +172,7 @@ async def main():
         wake = WakeWordProcessor(
             vad_analyzer=SileroVADAnalyzer(sample_rate=16000),
             threshold=float(os.getenv("WAKE_THRESHOLD", "0.3")),
-            model_name=os.getenv("WAKE_MODEL", "hey_jarvis"),
+            model_name=os.getenv("WAKE_MODEL", "alexa"),
         )
 
     pipeline = Pipeline(
