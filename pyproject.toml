@@ -46,5 +46,5 @@ dev = [
 [tool.pytest.ini_options]
 # Scope collection to our tests; the parked CosyVoice tree has unrelated test
 # files with heavy imports (tensorrt_llm etc.) that must not be collected.
-testpaths = ["friday/mcp_server/tests"]
+testpaths = ["friday/mcp_server/tests", "friday/tests"]
 asyncio_mode = "strict"
