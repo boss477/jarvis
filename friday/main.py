@@ -36,6 +36,7 @@ from services.ptt import PushToTalkProcessor
 from services.kokoro_tts import KokoroTTSService
 from services.vision import VisionState, VisionPTTProcessor, VisionContextInjector
 from services.wakeword import WakeWordProcessor
+from services.transcript_filter import TranscriptFilter
 
 load_dotenv(HERE / ".env")
 
@@ -178,6 +179,7 @@ async def main():
                 wake,
                 vision_ptt,
                 stt,
+                TranscriptFilter(),
                 agg.user(),
                 vision_injector,
                 llm,

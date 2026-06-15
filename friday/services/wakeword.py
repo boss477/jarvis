@@ -10,6 +10,7 @@ from the frames already flowing through the pipeline — no second mic stream.
 """
 
 import asyncio
+import time
 
 from loguru import logger
 
@@ -26,6 +27,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 _OWW_CHUNK = 1280  # samples openWakeWord expects per predict() call (80ms @ 16kHz)
+_COOLDOWN_S = 1.5  # ignore re-detections right after a turn (stops repeat triggers)
 
 
 class WakeWordProcessor(FrameProcessor):
@@ -40,6 +42,7 @@ class WakeWordProcessor(FrameProcessor):
         self._active = False       # wake-word turn in progress
         self._ptt_busy = False     # SPACE turn in progress (observed from PTT frames)
         self._spoke = False        # have we heard speech since activation (for VAD end)
+        self._cooldown_until = 0.0  # monotonic time before which wake detection is muted
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
@@ -71,6 +74,9 @@ class WakeWordProcessor(FrameProcessor):
     def _listen_for_wake(self, audio: bytes):
         import numpy as np
 
+        if time.monotonic() < self._cooldown_until:
+            self._buf.clear()  # don't let stale audio carry into the next window
+            return
         self._buf.extend(audio)
         step = _OWW_CHUNK * 2  # int16 = 2 bytes/sample
         while len(self._buf) >= step:
@@ -99,6 +105,8 @@ class WakeWordProcessor(FrameProcessor):
     def _deactivate(self):
         self._active = False
         self._spoke = False
+        self._buf.clear()
+        self._cooldown_until = time.monotonic() + _COOLDOWN_S
         logger.debug("Wake-word turn ended (silence).")
         self._emit(VADUserStoppedSpeakingFrame())
         self._emit(UserStoppedSpeakingFrame())

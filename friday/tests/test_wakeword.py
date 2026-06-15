@@ -71,3 +71,17 @@ def test_quiet_before_any_speech_does_not_end():
     p._on_audio(_silence(1))   # activate
     p._on_audio(b"\x00\x00" * 100)  # QUIET but never spoke -> stay active
     assert p._active
+
+
+def test_cooldown_blocks_immediate_retrigger():
+    import time
+    p, _ = _proc(FakeModel(0.9), FakeVAD([VADState.SPEAKING, VADState.QUIET]))
+    p._on_audio(_silence(1))                 # activate
+    p._on_audio(b"\x00\x00" * 100)           # SPEAKING
+    p._on_audio(b"\x00\x00" * 100)           # QUIET -> end + set cooldown
+    assert not p._active
+    p._on_audio(_silence(1))                 # high score, but within cooldown
+    assert not p._active                     # must NOT retrigger
+    p._cooldown_until = time.monotonic() - 1  # cooldown elapsed
+    p._on_audio(_silence(1))
+    assert p._active                         # now it can trigger again
