@@ -45,7 +45,7 @@ SYSTEM_PROMPT = (
     # is a one-sentence command router, not a reasoner — measured 17.4s -> 3.4s
     # per turn on qwen3.5-9b at no VRAM cost. Remove if a future model needs CoT.
     "/no_think "
-    "You are Friday, a local voice assistant. Reply in one short sentence only — "
+    "You are Jarvis, a local voice assistant. Reply in one short sentence only — "
     "never more. Be direct. You are spoken aloud, so never use markdown, bullet "
     "points, code blocks, or emoji. You can control this computer with tools. If a "
     "tool reply starts with CONFIRM_REQUIRED, read the action aloud and ask the user "
@@ -176,7 +176,7 @@ async def main():
         wake = WakeWordProcessor(
             vad_analyzer=SileroVADAnalyzer(sample_rate=16000),
             threshold=float(os.getenv("WAKE_THRESHOLD", "0.3")),
-            model_name=os.getenv("WAKE_MODEL", "alexa"),
+            model_name=os.getenv("WAKE_MODEL", "hey_jarvis"),
         )
 
     pipeline = Pipeline(
