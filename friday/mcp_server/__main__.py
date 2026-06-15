@@ -4,7 +4,7 @@ import os
 
 from fastmcp import FastMCP
 
-from . import apps, files, shell, system, windows
+from . import apps, files, shell, system, sysinfo, windows
 from . import input as input_tools
 from . import safety
 
@@ -14,6 +14,7 @@ _TOOLS = [
     apps.open_app, apps.open_url, apps.web_search, apps.close_app,
     system.set_volume, system.toggle_mute, system.set_brightness, system.media_control,
     system.lock_screen, system.sleep_pc, system.power_action,
+    sysinfo.system_info,
     files.open_path, files.search_files, files.create_folder, files.delete_path, files.move_path,
     shell.run_powershell,
     windows.list_windows, windows.focus_window, windows.minimize_window, windows.maximize_window,

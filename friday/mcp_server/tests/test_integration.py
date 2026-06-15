@@ -46,7 +46,7 @@ async def test_list_tools_over_http(server):
         schema = await client.get_tools_schema()
         names = {t.name for t in schema.standard_tools}
         assert "cancel_action" in names
-        assert len(schema.standard_tools) == 25
+        assert len(schema.standard_tools) == 26
     finally:
         await client.close()
 
