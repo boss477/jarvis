@@ -1,5 +1,9 @@
 """Wake-word logic tests with fake model/VAD — no audio device, no real ONNX."""
 
+import time
+
+import pytest
+
 from pipecat.audio.vad.vad_analyzer import VADState
 from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
@@ -18,16 +22,19 @@ class FakeModel:
 class FakeVAD:
     def __init__(self, states):
         self._states = list(states)
-    def analyze_audio(self, audio):
+    async def analyze_audio(self, audio):  # coroutine, like the real SileroVADAnalyzer
         return self._states.pop(0) if self._states else VADState.QUIET
 
 
 def _proc(model, vad):
     p = WakeWordProcessor(vad_analyzer=vad)
     p._model = model
-    p.push_frame = lambda *a, **k: None  # swallow emitted frames
     emitted = []
-    p._emit = lambda frame: emitted.append(type(frame))
+
+    async def _fake_emit(frame):
+        emitted.append(type(frame))
+
+    p._emit = _fake_emit
     return p, emitted
 
 
@@ -35,53 +42,58 @@ def _silence(n_chunks):
     return (b"\x00\x00" * _OWW_CHUNK) * n_chunks
 
 
-def test_high_score_activates_and_emits_start():
+@pytest.mark.asyncio
+async def test_high_score_activates_and_emits_start():
     p, emitted = _proc(FakeModel(0.9), FakeVAD([]))
-    p._on_audio(_silence(1))
+    await p._on_audio(_silence(1))
     assert p._active
     assert UserStartedSpeakingFrame in emitted
 
 
-def test_low_score_does_not_activate():
+@pytest.mark.asyncio
+async def test_low_score_does_not_activate():
     p, emitted = _proc(FakeModel(0.1), FakeVAD([]))
-    p._on_audio(_silence(2))
+    await p._on_audio(_silence(2))
     assert not p._active
     assert emitted == []
 
 
-def test_no_trigger_while_ptt_busy():
+@pytest.mark.asyncio
+async def test_no_trigger_while_ptt_busy():
     p, emitted = _proc(FakeModel(0.9), FakeVAD([]))
     p._ptt_busy = True
-    p._on_audio(_silence(1))
+    await p._on_audio(_silence(1))
     assert not p._active
     assert emitted == []
 
 
-def test_vad_silence_after_speech_ends_turn():
+@pytest.mark.asyncio
+async def test_vad_silence_after_speech_ends_turn():
     p, emitted = _proc(FakeModel(0.9), FakeVAD([VADState.SPEAKING, VADState.QUIET]))
-    p._on_audio(_silence(1))   # activate
-    p._on_audio(b"\x00\x00" * 100)  # SPEAKING -> _spoke=True
-    p._on_audio(b"\x00\x00" * 100)  # QUIET after speech -> end
+    await p._on_audio(_silence(1))   # activate
+    await p._on_audio(b"\x00\x00" * 100)  # SPEAKING -> _spoke=True
+    await p._on_audio(b"\x00\x00" * 100)  # QUIET after speech -> end
     assert not p._active
     assert UserStoppedSpeakingFrame in emitted
 
 
-def test_quiet_before_any_speech_does_not_end():
+@pytest.mark.asyncio
+async def test_quiet_before_any_speech_does_not_end():
     p, _ = _proc(FakeModel(0.9), FakeVAD([VADState.QUIET, VADState.QUIET]))
-    p._on_audio(_silence(1))   # activate
-    p._on_audio(b"\x00\x00" * 100)  # QUIET but never spoke -> stay active
+    await p._on_audio(_silence(1))   # activate
+    await p._on_audio(b"\x00\x00" * 100)  # QUIET but never spoke -> stay active
     assert p._active
 
 
-def test_cooldown_blocks_immediate_retrigger():
-    import time
+@pytest.mark.asyncio
+async def test_cooldown_blocks_immediate_retrigger():
     p, _ = _proc(FakeModel(0.9), FakeVAD([VADState.SPEAKING, VADState.QUIET]))
-    p._on_audio(_silence(1))                 # activate
-    p._on_audio(b"\x00\x00" * 100)           # SPEAKING
-    p._on_audio(b"\x00\x00" * 100)           # QUIET -> end + set cooldown
+    await p._on_audio(_silence(1))                 # activate
+    await p._on_audio(b"\x00\x00" * 100)           # SPEAKING
+    await p._on_audio(b"\x00\x00" * 100)           # QUIET -> end + set cooldown
     assert not p._active
-    p._on_audio(_silence(1))                 # high score, but within cooldown
-    assert not p._active                     # must NOT retrigger
-    p._cooldown_until = time.monotonic() - 1  # cooldown elapsed
-    p._on_audio(_silence(1))
-    assert p._active                         # now it can trigger again
+    await p._on_audio(_silence(1))                 # high score, but within cooldown
+    assert not p._active                           # must NOT retrigger
+    p._cooldown_until = time.monotonic() - 1       # cooldown elapsed
+    await p._on_audio(_silence(1))
+    assert p._active                               # now it can trigger again
