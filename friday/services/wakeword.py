@@ -61,6 +61,10 @@ class WakeWordProcessor(FrameProcessor):
     def _init_model(self):
         from openwakeword.model import Model
 
+        # We drive the VAD analyzer manually (not via a transport), so we must
+        # call set_sample_rate ourselves — it's what populates the analyzer's
+        # internal frame sizing (_vad_frames_num_bytes) used by analyze_audio.
+        self._vad.set_sample_rate(16000)
         self._model = Model(wakeword_models=[self._model_name], inference_framework="onnx")
         logger.info(f"Wake word ready — say '{self._model_name.replace('_', ' ')}'.")
 
