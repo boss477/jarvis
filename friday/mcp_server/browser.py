@@ -26,11 +26,36 @@ def _run(fn):
     return _EXEC.submit(fn).result()
 
 
-def _ensure_page():
-    """Return the live page on the owner thread, launching Chrome on first use."""
+def _alive() -> bool:
+    """True only if we hold a live, still-open page (user may close the window)."""
+    return (
+        _page is not None
+        and not _page.is_closed()
+        and _browser is not None
+        and _browser.is_connected()
+    )
+
+
+def _hard_reset():
+    """Drop any dead Playwright handles so the next launch starts clean."""
     global _pw, _browser, _page
-    if _page is not None:
+    for closer in (lambda: _browser and _browser.close(), lambda: _pw and _pw.stop()):
+        try:
+            closer()
+        except Exception:
+            pass
+    _pw = _browser = _page = None
+
+
+def _ensure_page():
+    """Return a live page on the owner thread, (re)launching Chrome if needed.
+
+    Recovers when the user closed the window externally — without this, a stale
+    _page handle makes goto() fail with 'Target page ... has been closed'."""
+    global _pw, _browser, _page
+    if _alive():
         return _page
+    _hard_reset()  # clear any dead handles from a closed window
     from playwright.sync_api import sync_playwright
 
     _pw = sync_playwright().start()
@@ -55,8 +80,9 @@ def browser_open(url: str) -> str:
 def browser_read() -> str:
     """Return the visible text of the current page (capped)."""
     def _do():
-        if _page is None:
-            return "No page open. Use browser_open first."
+        if not _alive():
+            _hard_reset()
+            return "The browser is closed. Use browser_open first."
         text = _page.inner_text("body")
         return text[:3000] + " …(truncated)" if len(text) > 3000 else text
 
@@ -66,8 +92,9 @@ def browser_read() -> str:
 def browser_click(text: str) -> str:
     """Click the first link/button whose visible text contains `text`."""
     def _do():
-        if _page is None:
-            return "No page open. Use browser_open first."
+        if not _alive():
+            _hard_reset()
+            return "The browser is closed. Use browser_open first."
         loc = _page.get_by_text(text, exact=False).first
         if loc.count() == 0:
             return f"No element with text '{text}'."
@@ -81,8 +108,9 @@ def browser_click(text: str) -> str:
 def browser_fill(label: str, value: str) -> str:
     """Type `value` into the field identified by `label` (placeholder/label/name)."""
     def _do():
-        if _page is None:
-            return "No page open. Use browser_open first."
+        if not _alive():
+            _hard_reset()
+            return "The browser is closed. Use browser_open first."
         loc = _page.get_by_label(label).or_(_page.get_by_placeholder(label)).first
         if loc.count() == 0:
             return f"No field labelled '{label}'."
@@ -94,15 +122,10 @@ def browser_fill(label: str, value: str) -> str:
 
 def browser_close() -> str:
     """Close Friday's controllable browser and free resources."""
-    global _pw, _browser, _page
-
     def _do():
-        global _pw, _browser, _page
         if _browser is None:
             return "Browser not open."
-        _browser.close()
-        _pw.stop()
-        _pw = _browser = _page = None
+        _hard_reset()
         return "Browser closed."
 
     return _run(_do)

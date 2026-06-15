@@ -12,6 +12,16 @@ def inline_run(monkeypatch):
     monkeypatch.setattr(browser, "_run", lambda fn: fn())
     yield
     browser._page = None
+    browser._browser = None
+
+
+class FakeBrowser:
+    def __init__(self, connected=True):
+        self._connected = connected
+    def is_connected(self):
+        return self._connected
+    def close(self):
+        self._connected = False
 
 
 class FakeLocator:
@@ -33,12 +43,15 @@ class FakeLocator:
 
 
 class FakePage:
-    def __init__(self):
+    def __init__(self, closed=False):
         self.url = "https://example.com/"
         self.goto_url = None
+        self._closed = closed
         self._text_loc = FakeLocator()
         self._label_loc = FakeLocator()
         self._placeholder_loc = FakeLocator(0)
+    def is_closed(self):
+        return self._closed
     def goto(self, url, wait_until=None):
         self.goto_url = url
         self.url = url
@@ -59,6 +72,7 @@ class FakePage:
 def _set_page(monkeypatch, page):
     monkeypatch.setattr(browser, "_ensure_page", lambda: page)
     browser._page = page
+    browser._browser = FakeBrowser()
 
 
 def test_open_adds_scheme(monkeypatch):
@@ -71,7 +85,15 @@ def test_open_adds_scheme(monkeypatch):
 
 def test_read_requires_open():
     browser._page = None
-    assert "No page open" in browser.browser_read()
+    browser._browser = None
+    assert "closed" in browser.browser_read()
+
+
+def test_read_recovers_when_window_closed(monkeypatch):
+    # user closed the Chrome window: page.is_closed() True -> friendly message, not a crash
+    browser._page = FakePage(closed=True)
+    browser._browser = FakeBrowser(connected=True)
+    assert "closed" in browser.browser_read()
 
 
 def test_read_returns_text(monkeypatch):
