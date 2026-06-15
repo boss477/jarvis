@@ -4,7 +4,7 @@ import os
 
 from fastmcp import FastMCP
 
-from . import apps, browser, files, shell, system, sysinfo, uia, windows
+from . import apps, browser, files, scheduler, shell, system, sysinfo, uia, windows
 from . import input as input_tools
 from . import safety
 
@@ -22,6 +22,7 @@ _TOOLS = [
     uia.click_element, uia.list_elements,
     browser.browser_open, browser.browser_read, browser.browser_click,
     browser.browser_fill, browser.browser_close,
+    scheduler.schedule_task, scheduler.list_scheduled_tasks, scheduler.delete_scheduled_task,
     safety.confirm_action, safety.cancel_action,
 ]
 
