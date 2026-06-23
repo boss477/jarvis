@@ -29,6 +29,7 @@ class FakeLocator:
         self._count = count
         self.clicked = False
         self.filled = None
+        self.pressed = None
     @property
     def first(self):
         return self
@@ -38,6 +39,8 @@ class FakeLocator:
         self.clicked = True
     def fill(self, v):
         self.filled = v
+    def press(self, key):
+        self.pressed = key
     def or_(self, other):
         return self if self._count else other
 
@@ -122,6 +125,16 @@ def test_fill_uses_label(monkeypatch):
     msg = browser.browser_fill("Email", "a@b.com")
     assert page._label_loc.filled == "a@b.com"
     assert "Filled" in msg
+    assert page._label_loc.pressed is None
+
+
+def test_fill_submit_presses_enter(monkeypatch):
+    page = FakePage()
+    _set_page(monkeypatch, page)
+    msg = browser.browser_fill("Message", "hey remember me", submit=True)
+    assert page._label_loc.filled == "hey remember me"
+    assert page._label_loc.pressed == "Enter"
+    assert "submitted" in msg
 
 
 def test_close_when_not_open():

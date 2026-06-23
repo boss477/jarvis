@@ -16,3 +16,9 @@ wheels/
 *.gguf
 friday/bin/*.onnx
 friday/bin/*.bin
+
+# Spotify cached OAuth token
+friday/.spotify_cache
+
+# Vendored CosyVoice (parked v2 clone, has its own .git, ~72MB)
+friday/tts_server/CosyVoice/

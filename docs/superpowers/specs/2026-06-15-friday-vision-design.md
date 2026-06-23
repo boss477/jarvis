@@ -9,7 +9,7 @@ hotkey; the screenshot is attached to that one turn and sent to the LLM in a sin
 This is the first of two planned phases (vision now; tools-expansion later, separate spec).
 
 ---
-
+2
 ## 1. Goal & Non-Goals
 
 **Goal:** Hold a dedicated key, ask a question, and Friday answers about what's currently

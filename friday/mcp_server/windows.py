@@ -27,6 +27,10 @@ _u.SetForegroundWindow.argtypes = [wintypes.HWND]
 _u.SetForegroundWindow.restype = wintypes.BOOL
 _u.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 _u.ShowWindow.restype = wintypes.BOOL
+_u.GetForegroundWindow.argtypes = []
+_u.GetForegroundWindow.restype = wintypes.HWND
+_u.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+_u.GetWindowThreadProcessId.restype = wintypes.DWORD
 
 
 def _enumerate() -> list[tuple[int, str]]:
@@ -55,6 +59,35 @@ def _find(title: str):
         if needle in t.lower():
             return hwnd, t
     return None, None
+
+
+def active_window() -> tuple[str, str]:
+    """(title, process_name) of the foreground window; ('', '') if none."""
+    hwnd = _u.GetForegroundWindow()
+    if not hwnd:
+        return "", ""
+    n = _u.GetWindowTextLengthW(hwnd)
+    buf = ctypes.create_unicode_buffer(n + 1)
+    _u.GetWindowTextW(hwnd, buf, n + 1)
+    title = buf.value.strip()
+    pid = wintypes.DWORD()
+    _u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    proc = ""
+    try:
+        import psutil
+        proc = psutil.Process(pid.value).name()
+    except Exception:
+        pass
+    return title, proc
+
+
+def get_active_window() -> str:
+    """Report the title and app of the currently focused window."""
+    title, proc = active_window()
+    if not title and not proc:
+        return "No active window."
+    app = f" ({proc})" if proc else ""
+    return f"Active window: '{title}'{app}."
 
 
 def list_windows() -> str:

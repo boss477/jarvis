@@ -8,7 +8,9 @@ from urllib.parse import quote_plus
 APP_MAP = {
     "chrome": "chrome",
     "google chrome": "chrome",
-    "spotify": "spotify",
+    # Store Spotify installs a `Spotify.exe` execution alias in WindowsApps
+    # (on PATH); plain "spotify" isn't found, so `start spotify` fails.
+    "spotify": "Spotify.exe",
     "discord": "discord",
     "vs code": "code",
     "vscode": "code",

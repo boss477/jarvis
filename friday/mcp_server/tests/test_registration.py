@@ -7,7 +7,11 @@ async def test_all_expected_tools_registered():
     tools = await mcp.list_tools()
     names = {t.name for t in tools}
     assert names == set(EXPECTED_TOOL_NAMES)
-    assert len(EXPECTED_TOOL_NAMES) == 36
+    assert len(EXPECTED_TOOL_NAMES) == 44
+    assert "spotify_play" in EXPECTED_TOOL_NAMES
+    assert {"chatgpt_ask", "whatsapp_send", "comet_search", "research_topic"} <= set(EXPECTED_TOOL_NAMES)
+    assert "calendar_add" in EXPECTED_TOOL_NAMES
+    assert {"get_active_window", "get_context"} <= set(EXPECTED_TOOL_NAMES)
     assert {"list_windows", "focus_window", "minimize_window", "maximize_window"} <= set(EXPECTED_TOOL_NAMES)
     assert "system_info" in EXPECTED_TOOL_NAMES
     assert {"click_element", "list_elements"} <= set(EXPECTED_TOOL_NAMES)
