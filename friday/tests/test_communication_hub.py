@@ -79,3 +79,27 @@ def test_string_provider_result_is_normalized():
     hub = CommunicationHub(); hub.register(Adapter())
     result = hub.send("slack", "C1", "hello")
     assert result.ok and result.detail == "sent:123"
+
+
+
+def test_delivery_errors_redact_webhook_urls(monkeypatch):
+    webhook = "https://example.webhook.office.com/secret/path"
+    monkeypatch.setenv("TEAMS_WEBHOOK_URL", webhook)
+
+    class Adapter:
+        name = "teams"
+
+        def poll(self):
+            return []
+
+        def send_message(self, recipient, text):
+            raise RuntimeError(f"request failed for {webhook}")
+
+    hub = CommunicationHub()
+    hub.register(Adapter())
+
+    result = hub.send("teams", "room-1", "hello")
+
+    assert not result.ok
+    assert webhook not in result.detail
+    assert "[redacted]" in result.detail
