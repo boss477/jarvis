@@ -17,7 +17,7 @@ def _safe_delivery_detail(value: str) -> str:
     for key, secret in os.environ.items():
         normalized = key.upper()
         if secret and any(part in normalized for part in
-                          ("TOKEN", "SECRET", "PASSWORD", "API_KEY", "ACCOUNT_SID")):
+                          ("TOKEN", "SECRET", "PASSWORD", "API_KEY", "ACCOUNT_SID", "WEBHOOK")):
             detail = detail.replace(secret, "[redacted]")
     detail = re.sub(r"(https?://api\.telegram\.org/bot)[^/\s]+", r"\1[redacted]", detail)
     return detail[:500]
