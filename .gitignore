@@ -9,6 +9,13 @@ wheels/
 # Virtual environments
 .venv
 
+# Persistent local agent state and inter-process lock files
+agent-state/
+*.mutex
+*.host.lock
+*.supervisor.lock
+*.supervisor.stop
+
 # Secrets
 .env
 
