@@ -81,9 +81,7 @@ def test_orchestrator_rejects_missing_connector_capability_before_side_effect(tm
     orchestrator = TaskOrchestrator(tasks, workers, connectors)
     orchestrator.register_tool(
         "send",
-        __import__("friday.services.orchestrator", fromlist=["StepPolicy"]).StepPolicy(
-            "messaging", connector="mail"
-        ),
+        StepPolicy("messaging", connector="mail"),
         lambda _args: calls.append("sent"),
     )
 
