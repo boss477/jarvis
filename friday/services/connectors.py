@@ -27,14 +27,16 @@ class ConnectorRegistry:
     def get(self, name: str) -> Connector | None:
         return self._items.get(name)
 
-    def require(self, name: str, capability: str = "use") -> Connector:
+    def require(self, name: str, capability: str | None = None) -> Connector:
         connector = self._items.get(name)
         if connector is None:
             raise LookupError(f"connector not registered: {name}")
         if not connector.enabled:
             raise LookupError(f"connector is disabled: {name}")
-        # Registration authorizes generic use; narrower operations must be
-        # explicitly listed in the connector's capability set.
+        # Callers must name the operation being authorized. Generic use is
+        # available only when the caller explicitly requests it.
+        if not capability:
+            raise ValueError("connector capability must be explicit")
         if capability != "use" and capability not in connector.capabilities:
             raise PermissionError(f"connector {name!r} does not grant capability {capability!r}")
         return connector

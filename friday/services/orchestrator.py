@@ -47,9 +47,14 @@ class TaskOrchestrator:
         if task.current_step >= len(task.steps): return {"ok": True, "status": "completed"}
         step = task.steps[task.current_step]; policy = self.policies.get(step.tool)
         if policy is None or step.tool not in self.handlers: raise LookupError(f"unregistered tool: {step.tool}")
-        worker = self.workers.choose(policy.capability)
         if policy.connector:
-            self.connectors.require(policy.connector, policy.connector_capability or "use")
+            if not policy.connector_capability:
+                raise PermissionError(
+                    f"tool {step.tool!r} names connector {policy.connector!r} "
+                    "without an explicit connector capability"
+                )
+            self.connectors.require(policy.connector, policy.connector_capability)
+        worker = self.workers.choose(policy.capability)
         if policy.requires_approval and not step.approved:
             self.tasks.require_approval(task_id, f"{step.tool} via {worker.name}")
             return {"ok": False, "status": "waiting_approval", "worker": worker.name}
