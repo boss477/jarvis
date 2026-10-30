@@ -68,7 +68,7 @@ class VoiceSessionStore:
                 raw = b""
 
             # Older versions reserved the first byte as a lock marker.
-            payload = raw[1:] if raw.startswith(b"\\0") else raw
+            payload = raw[1:] if raw.startswith(b"\0") else raw
             if not payload.strip():
                 sessions = {}
             else:
@@ -90,7 +90,7 @@ class VoiceSessionStore:
 
             # Keep the legacy leading lock byte for compatibility, but lock a
             # stable sidecar so the target can be atomically replaced on Windows.
-            encoded = b"\\0" + json.dumps(sessions, ensure_ascii=False).encode("utf-8")
+            encoded = b"\0" + json.dumps(sessions, ensure_ascii=False).encode("utf-8")
             descriptor, temporary_name = tempfile.mkstemp(
                 prefix=f".{self.path.name}.",
                 suffix=".tmp",

@@ -96,7 +96,7 @@ def test_voice_webhook_accepts_signed_blank_form_parameter(monkeypatch):
 
 
 
-@pytest.mark.parametrize("contents", [b"\\0{broken", b"\\0[]", b"{broken"])
+@pytest.mark.parametrize("contents", [b"\0{broken", b"\0[]", b"{broken"])
 def test_voice_session_store_preserves_unreadable_data(tmp_path, contents):
     path = tmp_path / "voice-sessions.json"
     path.write_bytes(contents)
@@ -118,13 +118,13 @@ def test_voice_session_store_updates_legacy_file_format(tmp_path):
             "created_at": time.time(),
         }
     }
-    path.write_bytes(b"\\0" + json.dumps(existing).encode("utf-8"))
+    path.write_bytes(b"\0" + json.dumps(existing).encode("utf-8"))
     store = VoiceSessionStore(path)
 
     new_session_id = store.create("new call")
 
     written = path.read_bytes()
-    assert written.startswith(b"\\0")
+    assert written.startswith(b"\0")
     sessions = json.loads(written[1:].decode("utf-8"))
     assert sessions["existing-session"]["opener"] == "keep this call"
     assert new_session_id in sessions
@@ -141,7 +141,7 @@ def test_voice_session_store_failed_atomic_replace_preserves_original(
             "created_at": time.time(),
         }
     }
-    original = b"\\0" + json.dumps(existing).encode("utf-8")
+    original = b"\0" + json.dumps(existing).encode("utf-8")
     path.write_bytes(original)
     store = VoiceSessionStore(path)
 
