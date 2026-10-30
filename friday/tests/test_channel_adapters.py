@@ -1,6 +1,7 @@
 import pytest
 
-from friday.services.channel_adapters import (DiscordAdapter, InstagramAdapter, LinkedInPublicPostAdapter, SlackAdapter, TelegramAdapter,
+from friday.services.channel_adapters import (DiscordAdapter, InstagramAdapter, InstagramPublicPostAdapter,
+                                               LinkedInPublicPostAdapter, SlackAdapter, TelegramAdapter,
                                                TeamsWebhookAdapter, TwilioVoiceAdapter,
                                                WhatsAppCloudAdapter, XAdapter)
 
@@ -161,6 +162,63 @@ def test_instagram_payload_parses_text():
     payload = {"entry": [{"messaging": [{"sender": {"id": "u1"},
                 "message": {"mid": "m1", "text": "hello"}}]}]}
     assert InstagramAdapter().parse(payload)[0].sender_id == "u1"
+
+def test_instagram_message_uses_bearer_header(monkeypatch):
+    import friday.services.channel_adapters as adapters
+
+    monkeypatch.setenv("INSTAGRAM_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "account-123")
+    seen = {}
+
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"message_id": "message-1"}
+
+    def post(url, **kwargs):
+        seen.update(url=url, **kwargs)
+        return Response()
+
+    monkeypatch.setattr(adapters.httpx, "post", post)
+    assert InstagramAdapter().send_message("recipient-1", "hello") == "message-1"
+    assert seen["headers"]["Authorization"] == "Bearer test-token"
+    assert "access_token" not in seen["url"]
+    assert "access_token" not in seen.get("params", {})
+    assert seen["json"] == {"recipient": {"id": "recipient-1"}, "message": {"text": "hello"}}
+
+
+def test_instagram_public_post_uses_bearer_header_for_both_requests(monkeypatch):
+    import friday.services.channel_adapters as adapters
+
+    monkeypatch.setenv("INSTAGRAM_ACCESS_TOKEN", "test-token")
+    monkeypatch.setenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "account-123")
+    seen = []
+
+    class Response:
+        def __init__(self, payload): self.payload = payload
+        def raise_for_status(self): pass
+        def json(self): return self.payload
+
+    def post(url, **kwargs):
+        seen.append((url, kwargs))
+        if url.endswith("/media"):
+            return Response({"id": "container-1"})
+        if url.endswith("/media_publish"):
+            return Response({"id": "published-1"})
+        raise AssertionError(f"unexpected Instagram endpoint: {url}")
+
+    monkeypatch.setattr(adapters.httpx, "post", post)
+    result = InstagramPublicPostAdapter().send_message("https://example.test/photo.jpg", "caption")
+
+    assert result == "published-1"
+    assert len(seen) == 2
+    for url, kwargs in seen:
+        assert kwargs["headers"]["Authorization"] == "Bearer test-token"
+        assert "access_token" not in url
+        assert "access_token" not in kwargs.get("params", {})
+    assert seen[0][1]["params"] == {
+        "image_url": "https://example.test/photo.jpg", "caption": "caption",
+    }
+    assert seen[1][1]["params"] == {"creation_id": "container-1"}
 
 def test_voice_without_credentials_is_explicitly_unconfigured(monkeypatch):
     for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"):
