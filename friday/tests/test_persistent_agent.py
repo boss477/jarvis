@@ -179,3 +179,36 @@ def test_recent_history_non_positive_limit_returns_empty():
     assert [message.text for message in agent.recent_history(
         "whatsapp", "c1", limit=1
     )] == ["second"]
+
+
+def test_message_deduplication_is_scoped_to_conversation_across_restart(tmp_path):
+    history_path = tmp_path / "conversations.jsonl"
+    calls = []
+    agent = PersistentActionAgent(
+        CommunicationHub(),
+        lambda message: calls.append((message.conversation_id, message.message_id))
+        or f"answer for {message.conversation_id}",
+        history_path,
+    )
+    first = CommunicationMessage("whatsapp", "c1", "u1", "question", "m1")
+    second = CommunicationMessage("whatsapp", "c2", "u2", "question", "m1")
+
+    first_result = agent.process_message(first, deliver=False)
+    second_result = agent.process_message(second, deliver=False)
+    assert first_result.reply == "answer for c1"
+    assert second_result.reply == "answer for c2"
+    assert calls == [("c1", "m1"), ("c2", "m1")]
+
+    assert agent.claim_delivery(first)
+    assert agent.claim_delivery(second)
+    agent.record_delivery(first, "sent", True)
+    agent.record_delivery(second, "temporary send failure", False)
+
+    recovered = PersistentActionAgent(CommunicationHub(), lambda _message: "unexpected", history_path)
+    first_retry = recovered.process_message(first, deliver=False)
+    second_retry = recovered.process_message(second, deliver=False)
+    assert first_retry.reply == ""
+    assert second_retry.reply == "answer for c2"
+    assert not recovered.claim_delivery(first)
+    assert recovered.claim_delivery(second)
+    assert calls == [("c1", "m1"), ("c2", "m1")]
