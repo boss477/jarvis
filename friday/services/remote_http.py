@@ -66,16 +66,17 @@ class WebhookHandler(BaseHTTPRequestHandler):
         return self._reply(403, {"ok": False, "error": "webhook verification failed"})
 
     def do_POST(self):
+        endpoint = self.path.split("?", 1)[0].rstrip("/")
         expected = f"Bearer {self.token}" if self.token else ""
         bearer_ok = bool(expected) and hmac.compare_digest(
             self.headers.get("Authorization", ""), expected
         )
-        provider_auth = ((channel_has_meta_secret(self.path) and bool(os.getenv("META_APP_SECRET")))
-                         or (self.path.rstrip("/").endswith("/slack") and bool(os.getenv("SLACK_SIGNING_SECRET")))
-                         or (self.path.rstrip("/").endswith("/telegram") and bool(os.getenv("TELEGRAM_WEBHOOK_SECRET"))))
+        provider_auth = ((channel_has_meta_secret(endpoint) and bool(os.getenv("META_APP_SECRET")))
+                         or (endpoint.endswith("/slack") and bool(os.getenv("SLACK_SIGNING_SECRET")))
+                         or (endpoint.endswith("/telegram") and bool(os.getenv("TELEGRAM_WEBHOOK_SECRET"))))
         if not bearer_ok and not provider_auth:
             return self._reply(401, {"ok": False, "error": "unauthorized"})
-        channel = self.path.strip("/").split("/")[-1]
+        channel = endpoint.strip("/").split("/")[-1]
         adapter = self.adapters.get(channel)
         if adapter is None or self.gateway is None:
             return self._reply(404, {"ok": False, "error": "unknown channel"})
