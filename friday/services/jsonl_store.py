@@ -29,7 +29,7 @@ def _jsonl_file_lock(path: Path):
 
                 handle.seek(0, os.SEEK_END)
                 if handle.tell() == 0:
-                    handle.write(b"\\0")
+                    handle.write(b"\0")
                     handle.flush()
                 handle.seek(0)
                 msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
@@ -54,7 +54,7 @@ def _read_jsonl_records_unlocked(source: Path) -> Iterator[dict[str, Any]]:
     for index, raw in enumerate(lines):
         if not raw.strip():
             continue
-        is_final_partial = index == len(lines) - 1 and not raw.endswith((b"\\n", b"\\r"))
+        is_final_partial = index == len(lines) - 1 and not raw.endswith((b"\n", b"\r"))
         try:
             line = raw.decode("utf-8")
             record = json.loads(line)
@@ -83,8 +83,8 @@ def _append_jsonl_record_unlocked(target: Path, record: dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
         data = target.read_bytes()
-        if data and not data.endswith((b"\\n", b"\\r")):
-            last_newline = max(data.rfind(b"\\n"), data.rfind(b"\\r"))
+        if data and not data.endswith((b"\n", b"\r")):
+            last_newline = max(data.rfind(b"\n"), data.rfind(b"\r"))
             offset = last_newline + 1
             tail = data[offset:]
             try:
@@ -101,8 +101,8 @@ def _append_jsonl_record_unlocked(target: Path, record: dict[str, Any]) -> None:
                         handle.truncate(offset)
                 else:
                     with target.open("ab") as handle:
-                        handle.write(b"\\n")
-    encoded = json.dumps(record, ensure_ascii=False, default=str).encode("utf-8") + b"\\n"
+                        handle.write(b"\n")
+    encoded = json.dumps(record, ensure_ascii=False, default=str).encode("utf-8") + b"\n"
     with target.open("ab") as handle:
         handle.write(encoded)
 
