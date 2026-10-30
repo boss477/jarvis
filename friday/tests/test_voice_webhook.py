@@ -109,6 +109,27 @@ def test_voice_session_store_preserves_unreadable_data(tmp_path, contents):
     assert path.with_name(path.name + ".corrupt").read_bytes() == contents
 
 
+def test_voice_session_store_reuses_matching_corrupt_backup(tmp_path):
+    path = tmp_path / "voice-sessions.json"
+    original = b"\\0{broken"
+    path.write_bytes(original)
+    first_backup = path.with_name(path.name + ".corrupt")
+    first_backup.write_bytes(b"older corrupt contents")
+    store = VoiceSessionStore(path)
+
+    with pytest.raises(ValueError, match="corrupt voice session store"):
+        store.create("new call")
+    matching_backup = path.with_name(path.name + ".corrupt.1")
+    assert matching_backup.read_bytes() == original
+
+    with pytest.raises(ValueError, match="corrupt voice session store"):
+        store.cleanup_expired()
+
+    backups = sorted(path.parent.glob(path.name + ".corrupt*"))
+    assert backups == [first_backup, matching_backup]
+    assert matching_backup.read_bytes() == original
+
+
 def test_voice_session_store_updates_legacy_file_format(tmp_path):
     path = tmp_path / "voice-sessions.json"
     existing = {
