@@ -210,3 +210,35 @@ def test_load_rejects_corrupt_jsonl_record_before_final_line(tmp_path):
 
     with pytest.raises(ValueError, match=r"invalid JSONL record.*:2"):
         TaskManager(path)
+
+
+@pytest.mark.parametrize("terminal_status", [
+    TaskStatus.COMPLETED,
+    TaskStatus.FAILED,
+    TaskStatus.CANCELLED,
+])
+def test_terminal_task_status_cannot_be_overwritten(tmp_path, terminal_status):
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("send a message", [{"tool": "send"}])
+
+    if terminal_status == TaskStatus.COMPLETED:
+        manager.start(task.id)
+        manager.checkpoint(task.id, success=True, result="sent")
+    elif terminal_status == TaskStatus.FAILED:
+        manager.start(task.id)
+        manager.checkpoint(task.id, success=False, error="provider failed")
+    else:
+        manager.cancel(task.id)
+
+    assert manager.get(task.id).status == terminal_status
+    transitions = (
+        lambda: manager.start(task.id),
+        lambda: manager.cancel(task.id),
+        lambda: manager.require_approval(task.id, "send via WhatsApp"),
+    )
+    for transition in transitions:
+        with pytest.raises(ValueError, match="terminal task status"):
+            transition()
+        assert manager.get(task.id).status == terminal_status
+        assert TaskManager(path).get(task.id).status == terminal_status
