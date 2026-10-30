@@ -15,6 +15,9 @@ import os
 import secrets
 import threading
 import time
+import tempfile
+
+from friday.services.jsonl_store import _jsonl_file_lock
 
 
 class VoiceSessionStore:
@@ -36,52 +39,74 @@ class VoiceSessionStore:
         self.path = Path(path).expanduser().resolve()
         self._lock = threading.RLock()
 
-    @contextmanager
-    def _locked_sessions(self):
-        """Serialize session updates across threads and independent app processes."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.touch(exist_ok=True)
-        with self._lock, self.path.open("r+b") as handle:
-            if os.name == "nt":
-                import msvcrt
-
-                handle.seek(0, os.SEEK_END)
-                if handle.tell() == 0:
-                    handle.write(b"\0")
-                    handle.flush()
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-
-                handle.seek(0)
-                if handle.read(1) == b"":
-                    handle.seek(0)
-                    handle.write(b"\0")
-                    handle.flush()
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                handle.seek(1)
-                raw = handle.read()
-                try:
-                    sessions = json.loads(raw.decode("utf-8")) if raw.strip() else {}
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    sessions = {}
-                if not isinstance(sessions, dict):
-                    sessions = {}
-                yield sessions
-                encoded = json.dumps(sessions, ensure_ascii=False).encode("utf-8")
-                handle.seek(1)
-                handle.truncate(1)
-                handle.write(encoded)
+    def _preserve_corrupt_sessions(self, raw: bytes) -> Path:
+        """Preserve unreadable session bytes without overwriting the source."""
+        backup = self.path.with_name(f"{self.path.name}.corrupt")
+        suffix = 1
+        while backup.exists():
+            backup = self.path.with_name(f"{self.path.name}.corrupt.{suffix}")
+            suffix += 1
+        try:
+            with backup.open("xb") as handle:
+                handle.write(raw)
                 handle.flush()
                 os.fsync(handle.fileno())
+        except OSError as exc:
+            raise RuntimeError(
+                f"could not preserve corrupt voice session data at {self.path}"
+            ) from exc
+        return backup
+
+    @contextmanager
+    def _locked_sessions(self):
+        """Serialize updates and atomically replace the session store."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, _jsonl_file_lock(self.path):
+            try:
+                raw = self.path.read_bytes()
+            except FileNotFoundError:
+                raw = b""
+
+            # Older versions reserved the first byte as a lock marker.
+            payload = raw[1:] if raw.startswith(b"\\0") else raw
+            if not payload.strip():
+                sessions = {}
+            else:
+                try:
+                    sessions = json.loads(payload.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    backup = self._preserve_corrupt_sessions(raw)
+                    raise ValueError(
+                        f"corrupt voice session store preserved at {backup}"
+                    ) from exc
+                if not isinstance(sessions, dict):
+                    backup = self._preserve_corrupt_sessions(raw)
+                    raise ValueError(
+                        f"corrupt voice session store preserved at {backup}: "
+                        "expected a JSON object"
+                    )
+
+            yield sessions
+
+            # Keep the legacy leading lock byte for compatibility, but lock a
+            # stable sidecar so the target can be atomically replaced on Windows.
+            encoded = b"\\0" + json.dumps(sessions, ensure_ascii=False).encode("utf-8")
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                dir=self.path.parent,
+            )
+            try:
+                with os.fdopen(descriptor, "wb") as handle:
+                    handle.write(encoded)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary_name, self.path)
             finally:
-                handle.seek(0)
-                if os.name == "nt":
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                try:
+                    os.unlink(temporary_name)
+                except FileNotFoundError:
+                    pass
 
     def create(self, opener: str) -> str:
         now = time.time()

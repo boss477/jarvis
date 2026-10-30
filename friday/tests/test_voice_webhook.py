@@ -1,4 +1,13 @@
-from friday.services.voice_webhook import create_voice_webhook_server, twiml_gather
+import json
+import time
+
+import pytest
+
+from friday.services.voice_webhook import (
+    VoiceSessionStore,
+    create_voice_webhook_server,
+    twiml_gather,
+)
 
 
 def test_twiml_gather_escapes_prompt():
@@ -84,3 +93,63 @@ def test_voice_webhook_accepts_signed_blank_form_parameter(monkeypatch):
         server.shutdown()
         server.server_close()
 
+
+
+
+@pytest.mark.parametrize("contents", [b"\\0{broken", b"\\0[]", b"{broken"])
+def test_voice_session_store_preserves_unreadable_data(tmp_path, contents):
+    path = tmp_path / "voice-sessions.json"
+    path.write_bytes(contents)
+    store = VoiceSessionStore(path)
+
+    with pytest.raises(ValueError, match="corrupt voice session store"):
+        store.create("new call")
+
+    assert path.read_bytes() == contents
+    assert path.with_name(path.name + ".corrupt").read_bytes() == contents
+
+
+def test_voice_session_store_updates_legacy_file_format(tmp_path):
+    path = tmp_path / "voice-sessions.json"
+    existing = {
+        "existing-session": {
+            "opener": "keep this call",
+            "turns": [],
+            "created_at": time.time(),
+        }
+    }
+    path.write_bytes(b"\\0" + json.dumps(existing).encode("utf-8"))
+    store = VoiceSessionStore(path)
+
+    new_session_id = store.create("new call")
+
+    written = path.read_bytes()
+    assert written.startswith(b"\\0")
+    sessions = json.loads(written[1:].decode("utf-8"))
+    assert sessions["existing-session"]["opener"] == "keep this call"
+    assert new_session_id in sessions
+
+
+def test_voice_session_store_failed_atomic_replace_preserves_original(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "voice-sessions.json"
+    existing = {
+        "existing-session": {
+            "opener": "keep this call",
+            "turns": [],
+            "created_at": time.time(),
+        }
+    }
+    original = b"\\0" + json.dumps(existing).encode("utf-8")
+    path.write_bytes(original)
+    store = VoiceSessionStore(path)
+
+    def fail_replace(_source, _target):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr("friday.services.voice_webhook.os.replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        store.create("new call")
+
+    assert path.read_bytes() == original
