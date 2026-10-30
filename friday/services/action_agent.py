@@ -123,7 +123,7 @@ class PersistentActionAgent:
                 reply_message = CommunicationMessage(
                     channel=message.channel, conversation_id=message.conversation_id,
                     sender_id="agent", text=response, message_id=delivery.message_id,
-                    metadata={"direction": "outbound", "delivered": delivery.ok,
+                    metadata={"direction": "outbound", "delivered": deliver and delivery.ok,
                               "detail": delivery.detail},
                 )
                 self._remember(key, reply_message)
