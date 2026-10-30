@@ -236,6 +236,8 @@ class DiscordAdapter(ChannelAdapter):
     def __init__(self): super().__init__("discord")
 
     def send_message(self, recipient: str, text: str) -> str:
+        if not re.fullmatch(r"[0-9]{17,20}", recipient):
+            raise ValueError("Discord channel ID must be a 17- to 20-digit numeric snowflake")
         token = os.getenv("DISCORD_BOT_TOKEN", "")
         if not token:
             return UnconfiguredChannel(self.name).send(recipient, text)
