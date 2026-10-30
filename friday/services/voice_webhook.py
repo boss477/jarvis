@@ -38,6 +38,29 @@ class VoiceSessionStore:
                 path = task_path.with_name("voice-sessions.json")
         self.path = Path(path).expanduser().resolve()
         self._lock = threading.RLock()
+        self._session_locks: dict[str, tuple[threading.Lock, int]] = {}
+        self._session_locks_guard = threading.Lock()
+
+    @contextmanager
+    def _session_guard(self, session_id: str):
+        """Serialize one call's replies without blocking unrelated sessions."""
+        with self._session_locks_guard:
+            entry = self._session_locks.get(session_id)
+            if entry is None:
+                lock, users = threading.Lock(), 0
+            else:
+                lock, users = entry
+            self._session_locks[session_id] = (lock, users + 1)
+        try:
+            with lock:
+                yield
+        finally:
+            with self._session_locks_guard:
+                current_lock, users = self._session_locks[session_id]
+                if users == 1:
+                    del self._session_locks[session_id]
+                else:
+                    self._session_locks[session_id] = (current_lock, users - 1)
 
     def _preserve_corrupt_sessions(self, raw: bytes) -> Path:
         """Preserve unreadable bytes once, reusing a matching backup on later reads."""
@@ -144,8 +167,9 @@ class VoiceSessionStore:
     def discard(self, session_id: str) -> None:
         if not session_id:
             return
-        with self._locked_sessions() as sessions:
-            sessions.pop(session_id, None)
+        with self._session_guard(session_id):
+            with self._locked_sessions() as sessions:
+                sessions.pop(session_id, None)
 
     def cleanup_expired(self) -> int:
         cutoff = time.time() - self.ttl_seconds
@@ -157,27 +181,28 @@ class VoiceSessionStore:
         return len(expired)
 
     def reply(self, session_id: str, speech: str, generator) -> tuple[str, bool]:
-        with self._locked_sessions() as sessions:
-            session = sessions.get(session_id)
-            if not session or time.time() - session.get("created_at", 0) >= self.ttl_seconds:
-                sessions.pop(session_id, None)
-                return "I'm sorry, this call session has expired. Goodbye.", True
-            opener = session["opener"]
-            turns = list(session["turns"])
-        if not speech.strip():
-            return opener, False
-        generated = generator(opener, turns, speech[:4000])
-        if isinstance(generated, tuple):
-            response, end_call = generated
-        else:
-            response, end_call = str(generated), False
-        response = str(response)[:1000]
-        with self._locked_sessions() as sessions:
-            session = sessions.get(session_id)
-            if session:
-                session["turns"].extend((("caller", speech[:4000]), ("agent", response)))
-                session["turns"] = session["turns"][-20:]
-        return response, bool(end_call)
+        with self._session_guard(session_id):
+            with self._locked_sessions() as sessions:
+                session = sessions.get(session_id)
+                if not session or time.time() - session.get("created_at", 0) >= self.ttl_seconds:
+                    sessions.pop(session_id, None)
+                    return "I'm sorry, this call session has expired. Goodbye.", True
+                opener = session["opener"]
+                turns = list(session["turns"])
+            if not speech.strip():
+                return opener, False
+            generated = generator(opener, turns, speech[:4000])
+            if isinstance(generated, tuple):
+                response, end_call = generated
+            else:
+                response, end_call = str(generated), False
+            response = str(response)[:1000]
+            with self._locked_sessions() as sessions:
+                session = sessions.get(session_id)
+                if session:
+                    session["turns"].extend((("caller", speech[:4000]), ("agent", response)))
+                    session["turns"] = session["turns"][-20:]
+            return response, bool(end_call)
 
 
 VOICE_SESSIONS = VoiceSessionStore()
