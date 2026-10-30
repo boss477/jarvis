@@ -436,10 +436,12 @@ class InstagramAdapter(ChannelAdapter):
         account_id = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "")
         if not token or not account_id:
             return UnconfiguredChannel(self.name).send(recipient, text)
-        response = httpx.post(f"https://graph.facebook.com/v23.0/{account_id}/messages",
-                              params={"access_token": token},
-                              json={"recipient": {"id": recipient},
-                                    "message": {"text": text}}, timeout=20)
+        response = httpx.post(
+            f"https://graph.facebook.com/v23.0/{account_id}/messages",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"recipient": {"id": recipient}, "message": {"text": text}},
+            timeout=20,
+        )
         response.raise_for_status()
         return str(response.json().get("message_id", "sent"))
 
@@ -466,7 +468,8 @@ class InstagramPublicPostAdapter(ChannelAdapter):
         base_url = f"https://graph.facebook.com/{version}/{account_id}"
         container_response = httpx.post(
             f"{base_url}/media",
-            params={"image_url": media_url.strip(), "caption": caption, "access_token": token},
+            headers={"Authorization": f"Bearer {token}"},
+            params={"image_url": media_url.strip(), "caption": caption},
             timeout=30,
         )
         container_response.raise_for_status()
@@ -476,7 +479,8 @@ class InstagramPublicPostAdapter(ChannelAdapter):
 
         publish_response = httpx.post(
             f"{base_url}/media_publish",
-            params={"creation_id": container_id, "access_token": token},
+            headers={"Authorization": f"Bearer {token}"},
+            params={"creation_id": container_id},
             timeout=30,
         )
         publish_response.raise_for_status()
