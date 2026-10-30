@@ -106,6 +106,31 @@ def test_discord_sends_to_explicit_channel_id(monkeypatch):
     assert seen["headers"]["Authorization"] == "Bot test-token"
     assert seen["json"] == {"content": "hello"}
 
+
+@pytest.mark.parametrize(
+    "recipient",
+    [
+        "12345678901234567/../../users/@me",
+        "123456789012345678?x=1",
+        "not-a-channel",
+        "１２３４５６７８９０１２３４５６７８",
+        "1234567890123456",
+        "123456789012345678901",
+    ],
+)
+def test_discord_rejects_invalid_channel_ids_before_request(monkeypatch, recipient):
+    import friday.services.channel_adapters as adapters
+
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "test-token")
+
+    def post(*args, **kwargs):
+        pytest.fail("Discord request must not be sent for an invalid channel ID")
+
+    monkeypatch.setattr(adapters.httpx, "post", post)
+    with pytest.raises(ValueError, match="Discord channel ID"):
+        DiscordAdapter().send_message(recipient, "hello")
+
+
 def test_linkedin_text_post_uses_configured_author_and_version(monkeypatch):
     import friday.services.channel_adapters as adapters
 
