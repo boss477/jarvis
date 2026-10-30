@@ -127,7 +127,7 @@ class ComposeWindow:
         self.retry_button.pack(side="left")
         self._refresh_pending()
 
-    def _refresh_pending(self):
+    def _refresh_pending(self, preferred_task_id=None):
         saved = [task for task in self.runtime.tasks.list()
                  if any(step.tool == "compose_send" for step in task.steps)
                  and task.status.value in {"waiting_approval", "completed", "failed"}]
@@ -136,7 +136,10 @@ class ComposeWindow:
         values = [f"{task.id} | {task.status.value} | {task.prompt[:48]}" for task in saved]
         current_id = self.pending_task.get().split(" | ", 1)[0]
         self.pending_picker["values"] = values
-        selected = next((value for value in values if value.startswith(current_id + " | ")), "")
+        selected = next((value for value in values
+                         if preferred_task_id and value.startswith(preferred_task_id + " | ")), "")
+        if not selected:
+            selected = next((value for value in values if value.startswith(current_id + " | ")), "")
         if not selected and getattr(self, "task_id", ""):
             selected = next((value for value in values
                              if value.startswith(self.task_id + " | ")), "")
@@ -360,7 +363,7 @@ class ComposeWindow:
             self.runtime.tasks.start(task.id)
             result = self.runtime.controller.advance(task.id)
             self.status.set(f"{result}  ·  selected: {len(parsed)}")
-            self._refresh_pending()
+            self._refresh_pending(preferred_task_id=task.id)
         except Exception as exc:
             self.status.set("Could not prepare message")
             messagebox.showerror("Composer error", str(exc))
@@ -454,7 +457,7 @@ class ComposeWindow:
         self.task_id = retry_task.id
         self.runtime.tasks.start(retry_task.id)
         self.status.set(self.runtime.controller.advance(retry_task.id))
-        self._refresh_pending()
+        self._refresh_pending(preferred_task_id=retry_task.id)
 
     def run(self):
         self.root.mainloop()
