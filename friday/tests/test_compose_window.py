@@ -22,3 +22,36 @@ def test_readiness_guides_whatsapp_sender_allowlist_setup(monkeypatch):
     assert "WHATSAPP_ALLOWED_SENDERS" in status
     assert "+<countrycode><number>" in status
     assert "restart the persistent agent" in status
+
+def test_refresh_pending_prefers_newly_prepared_task_over_previous_selection():
+    from types import SimpleNamespace
+
+    class Value:
+        def __init__(self, value=""):
+            self.value = value
+
+        def get(self):
+            return self.value
+
+        def set(self, value):
+            self.value = value
+
+    old_task = SimpleNamespace(
+        id="old-task", status=SimpleNamespace(value="waiting_approval"),
+        steps=[SimpleNamespace(tool="compose_send")], updated_at="2026-10-29T10:00:00Z",
+        prompt="old message",
+    )
+    new_task = SimpleNamespace(
+        id="new-task", status=SimpleNamespace(value="waiting_approval"),
+        steps=[SimpleNamespace(tool="compose_send")], updated_at="2026-10-30T10:00:00Z",
+        prompt="new message",
+    )
+    window = ComposeWindow.__new__(ComposeWindow)
+    window.runtime = SimpleNamespace(tasks=SimpleNamespace(list=lambda: [new_task, old_task]))
+    window.pending_task = Value("old-task | waiting_approval | old message")
+    window.pending_picker = {}
+    window._show_selected_task = lambda: None
+
+    window._refresh_pending(preferred_task_id="new-task")
+
+    assert window.pending_task.get().startswith("new-task | waiting_approval | ")
