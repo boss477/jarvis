@@ -126,7 +126,7 @@ def _append_jsonl_record_unlocked(target: Path, record: dict[str, Any]) -> None:
                 else:
                     with target.open("ab") as handle:
                         handle.write(b"\n")
-    encoded = json.dumps(record, ensure_ascii=False, default=str).encode("utf-8") + b"\n"
+    encoded = json.dumps(record, ensure_ascii=True, default=str).encode("utf-8") + b"\n"
     with target.open("ab") as handle:
         handle.write(encoded)
 

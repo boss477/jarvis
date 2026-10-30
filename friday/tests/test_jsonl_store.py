@@ -58,6 +58,14 @@ def test_concurrent_appends_serialize_tail_repair(tmp_path, monkeypatch):
         "second",
     ]
 
+def test_append_recovers_tail_before_escaping_lone_surrogates(tmp_path):
+    path = tmp_path / "history.jsonl"
+    path.write_bytes(b'{"id":"kept"}\n{"partial":')
+    record = {"value": "\\ud800"}
+
+    jsonl_store.append_jsonl_record(path, record)
+
+    assert list(jsonl_store.read_jsonl_records(path)) == [{"id": "kept"}, record]
 
 
 class _FakeLockHandle:
