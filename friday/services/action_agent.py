@@ -185,7 +185,7 @@ class PersistentActionAgent:
                 and not (exclude_message_id and message.message_id == exclude_message_id
                          and message.sender_id != "agent")
             ]
-            return list(turns[-max(0, limit):]) if limit else []
+            return list(turns[-limit:]) if limit > 0 else []
 
     def _remember(self, key: str, message: CommunicationMessage) -> None:
         with self._history_lock:
