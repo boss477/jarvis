@@ -10,6 +10,7 @@ def test_concurrent_appends_serialize_tail_repair(tmp_path, monkeypatch):
     first_entered = Event()
     release_first = Event()
     second_entered = Event()
+    second_attempting = Event()
     errors = []
     original_append = jsonl_store._append_jsonl_record_unlocked
 
@@ -25,6 +26,8 @@ def test_concurrent_appends_serialize_tail_repair(tmp_path, monkeypatch):
     monkeypatch.setattr(jsonl_store, "_append_jsonl_record_unlocked", controlled_append)
 
     def append(record):
+        if record["id"] == "second":
+            second_attempting.set()
         try:
             jsonl_store.append_jsonl_record(path, record)
         except Exception as exc:  # surface worker-thread failures in the test
@@ -35,6 +38,7 @@ def test_concurrent_appends_serialize_tail_repair(tmp_path, monkeypatch):
     first.start()
     assert first_entered.wait(timeout=2)
     second.start()
+    assert second_attempting.wait(timeout=2)
 
     # The second writer must not enter tail repair while the first owns the lock.
     assert not second_entered.wait(timeout=0.15)
