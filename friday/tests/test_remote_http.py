@@ -28,6 +28,31 @@ def test_loopback_webhook_routes_authenticated_command(tmp_path):
         server.shutdown(); server.server_close()
 
 
+
+def test_telegram_webhook_routes_query_string_when_secret_auth_is_used(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "telegram-secret")
+    manager = TaskManager(tmp_path / "tasks.jsonl")
+    task = manager.create("demo", [{"tool": "x"}], origin_channel="telegram",
+                          origin_sender_id="1", origin_conversation_id="1")
+    server = create_webhook_server(RemoteGateway(TaskCommandService(manager)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        body = json.dumps({"message": {"from": {"id": 1}, "text": f"/check {task.id}"}}).encode()
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/telegram?source=meta",
+            data=body,
+            headers={
+                "X-Telegram-Bot-Api-Secret-Token": "telegram-secret",
+                "Content-Type": "application/json",
+            },
+        )
+        result = json.loads(urlopen(request, timeout=2).read())
+        assert result["ok"] and result["results"][0]["ok"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
 def test_webhook_rejects_oversized_body_before_reading_it(tmp_path):
     manager = TaskManager(tmp_path / "tasks.jsonl")
     server = create_webhook_server(RemoteGateway(TaskCommandService(manager)), token="secret")
