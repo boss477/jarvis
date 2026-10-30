@@ -1,4 +1,5 @@
 import time
+import threading
 import pytest
 
 from friday.services.communication_hub import (CommunicationHub, CommunicationMessage,
@@ -36,13 +37,40 @@ def test_runtime_processes_one_message_and_stops():
     assert not runtime.running
 
 
-def test_runtime_start_is_idempotent():
-    hub = CommunicationHub()
-    runtime = PersistentAgentRuntime(hub, lambda message: "")
-    runtime.start(); first = runtime._thread
+def test_runtime_stop_retains_live_thread_after_timeout():
+    hub = CommunicationHub(); adapter = FakeAdapter(); hub.register(adapter)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def handler(_message):
+        entered.set()
+        release.wait(timeout=2)
+        return "done"
+
+    runtime = PersistentAgentRuntime(
+        hub, handler, AgentRuntimeConfig(poll_interval_seconds=0.01)
+    )
+    first = None
     runtime.start()
-    runtime.stop()
-    assert first is not None
+    try:
+        assert entered.wait(timeout=1)
+        first = runtime._thread
+        assert first is not None
+
+        runtime.stop(timeout=0.01)
+        assert runtime._thread is first
+        assert first.is_alive()
+
+        # A second start must not replace a still-running worker.
+        runtime.start()
+        assert runtime._thread is first
+    finally:
+        release.set()
+        if first is not None:
+            first.join(timeout=1)
+        runtime.stop(timeout=1)
+
+    assert runtime._thread is None
 
 
 def test_webhook_retry_does_not_repeat_action_or_successful_reply(tmp_path):
