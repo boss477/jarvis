@@ -6,6 +6,8 @@ import threading
 import time
 from pathlib import Path
 
+from .jsonl_store import append_jsonl_record
+
 
 def _read_jsonl_records(path: Path) -> list[dict]:
     """Read complete JSONL records, tolerating only a truncated final append."""
@@ -42,9 +44,7 @@ class MemoryStore:
         if not item["text"]:
             raise ValueError("memory text is required")
         with self._lock:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(item) + "\n")
+            append_jsonl_record(self.path, item)
             self._items.append(item)
         return item
 
