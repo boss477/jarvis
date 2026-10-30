@@ -40,22 +40,39 @@ class VoiceSessionStore:
         self._lock = threading.RLock()
 
     def _preserve_corrupt_sessions(self, raw: bytes) -> Path:
-        """Preserve unreadable session bytes without overwriting the source."""
-        backup = self.path.with_name(f"{self.path.name}.corrupt")
-        suffix = 1
-        while backup.exists():
-            backup = self.path.with_name(f"{self.path.name}.corrupt.{suffix}")
+        """Preserve unreadable bytes once, reusing a matching backup on later reads."""
+        first_backup = self.path.with_name(f"{self.path.name}.corrupt")
+        suffix = 0
+        while True:
+            backup = (
+                first_backup
+                if suffix == 0
+                else self.path.with_name(f"{first_backup.name}.{suffix}")
+            )
+            try:
+                existing = backup.read_bytes()
+            except FileNotFoundError:
+                try:
+                    with backup.open("xb") as handle:
+                        handle.write(raw)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                except FileExistsError:
+                    # Another writer created this candidate after the read.
+                    continue
+                except OSError as exc:
+                    raise RuntimeError(
+                        f"could not preserve corrupt voice session data at {self.path}"
+                    ) from exc
+                return backup
+            except OSError as exc:
+                raise RuntimeError(
+                    f"could not inspect corrupt voice session backup at {backup}"
+                ) from exc
+
+            if existing == raw:
+                return backup
             suffix += 1
-        try:
-            with backup.open("xb") as handle:
-                handle.write(raw)
-                handle.flush()
-                os.fsync(handle.fileno())
-        except OSError as exc:
-            raise RuntimeError(
-                f"could not preserve corrupt voice session data at {self.path}"
-            ) from exc
-        return backup
 
     @contextmanager
     def _locked_sessions(self):
