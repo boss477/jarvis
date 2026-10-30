@@ -239,11 +239,11 @@ class TaskManager:
     def _save(self, task: Task) -> None:
         row = asdict(task)
         row["status"] = task.status.value
-        append_jsonl_record(self.path, row)
+        append_jsonl_record(self.path, row, lock_held=True)
 
     def _load(self) -> None:
         self._tasks.clear()
-        for row in read_jsonl_records(self.path):
+        for row in read_jsonl_records(self.path, lock_held=True):
             row["status"] = TaskStatus(row["status"])
             row["steps"] = [TaskStep(**step) for step in row["steps"]]
             task = Task(**row)
