@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 import threading
@@ -5,6 +6,27 @@ import pytest
 
 from friday.services.task_manager import TaskManager, TaskStatus
 from friday.services.task_commands import TaskCommandService
+
+
+def test_task_manager_uses_shared_jsonl_lock(tmp_path, monkeypatch):
+    from friday.services import task_manager
+
+    original_lock = task_manager._jsonl_file_lock
+    lock_paths = []
+
+    @contextmanager
+    def tracked_lock(path):
+        lock_paths.append(path)
+        with original_lock(path):
+            yield
+
+    monkeypatch.setattr(task_manager, "_jsonl_file_lock", tracked_lock)
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("send", [{"tool": "send"}])
+
+    assert manager.get(task.id).prompt == "send"
+    assert lock_paths == [path, path, path]
 
 
 def _approve_task_in_process(path, task_id, barrier, outcomes):
