@@ -44,7 +44,7 @@ def generate_voice_reply(opener: str, turns: list[tuple[str, str]], speech: str)
                           headers={"Authorization": f"Bearer {api_key}"},
                           json=payload, timeout=httpx.Timeout(11.0, connect=2.0))
     response.raise_for_status()
-    content = str(response.json()["choices"][0]["message"]["content"]).strip()
+    content = str(response.json()["choices"][0]["message"].get("content") or "").strip()
     try:
         value = json.loads(content)
     except json.JSONDecodeError:
