@@ -123,3 +123,17 @@ def test_restart_quarantines_inbound_event_interrupted_during_handler(tmp_path):
     again = after_second_restart.process_message(inbound, deliver=False)
     assert again.reply == retry.reply
     assert calls == []
+
+def test_recent_history_non_positive_limit_returns_empty():
+    agent = PersistentActionAgent(CommunicationHub(), lambda _message: "answer")
+    key = "whatsapp:c1"
+    agent.history[key] = [
+        CommunicationMessage("whatsapp", "c1", "u1", "first", "m1"),
+        CommunicationMessage("whatsapp", "c1", "u1", "second", "m2"),
+    ]
+
+    assert agent.recent_history("whatsapp", "c1", limit=0) == []
+    assert agent.recent_history("whatsapp", "c1", limit=-1) == []
+    assert [message.text for message in agent.recent_history(
+        "whatsapp", "c1", limit=1
+    )] == ["second"]
