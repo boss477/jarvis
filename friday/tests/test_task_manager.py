@@ -161,6 +161,26 @@ def test_recovery_marks_running_step_uncertain_without_replaying(tmp_path):
         restarted_manager.resume(task.id)
 
 
+def test_pause_rejects_recovered_failed_task_with_interrupted_step(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("send a message", [{"tool": "send"}])
+    manager.start(task.id)
+
+    assert manager.recover_interrupted_tasks() == [task.id]
+    recovered = manager.get(task.id)
+    assert recovered.status == TaskStatus.FAILED
+    assert recovered.steps[0].status == "interrupted"
+
+    with pytest.raises(ValueError, match="not queued or running"):
+        manager.pause(task.id)
+
+    assert manager.get(task.id).status == TaskStatus.FAILED
+    with pytest.raises(ValueError, match="not paused or queued"):
+        manager.resume(task.id)
+    assert manager.get(task.id).status == TaskStatus.FAILED
+
+
 def test_recovery_preserves_tasks_waiting_for_user_approval(tmp_path):
     manager = TaskManager(tmp_path / "tasks.jsonl")
     task = manager.create("send a message", [{"tool": "send"}])

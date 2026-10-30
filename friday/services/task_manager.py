@@ -90,7 +90,11 @@ class TaskManager:
         return self._set_status(task_id, TaskStatus.RUNNING)
 
     def pause(self, task_id: str) -> Task:
-        return self._set_status(task_id, TaskStatus.PAUSED)
+        with self._locked_state():
+            task = self._get_required(task_id)
+            if task.status not in {TaskStatus.QUEUED, TaskStatus.RUNNING}:
+                raise ValueError("task is not queued or running")
+            return self._set_status(task_id, TaskStatus.PAUSED)
 
     def resume(self, task_id: str) -> Task:
         with self._locked_state():
