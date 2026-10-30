@@ -53,9 +53,14 @@ class PersistentAgentRuntime:
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
-        self._thread = None
+        thread = self._thread
+        if thread is None:
+            return
+        thread.join(timeout=timeout)
+        # Keep the reference while the worker is still alive. Otherwise start()
+        # could replace it and launch a second worker after a timed-out join.
+        if not thread.is_alive() and self._thread is thread:
+            self._thread = None
 
     def process_once(self) -> list[AgentReply]:
         replies = self.agent.process_once()
