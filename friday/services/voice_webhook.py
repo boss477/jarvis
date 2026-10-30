@@ -210,7 +210,7 @@ class VoiceWebhookHandler(BaseHTTPRequestHandler):
         except UnicodeDecodeError:
             self.send_error(400, "invalid request encoding")
             return
-        form = {key: values[0] for key, values in parse_qs(body).items()}
+        form = {key: values[0] for key, values in parse_qs(body, keep_blank_values=True).items()}
         try:
             if not self._valid_signature(form):
                 self.send_error(403, "invalid Twilio signature")
