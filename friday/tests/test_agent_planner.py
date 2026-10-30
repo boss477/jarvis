@@ -43,3 +43,24 @@ def test_planner_never_guesses_another_whatsapp_recipient(monkeypatch):
     system = captured["json"]["messages"][0]["content"]
     assert "never substitute the current sender or guess a recipient" in system
     assert steps == [{"tool": "respond", "args": {"text": "What is their phone number?"}}]
+
+
+def test_generate_voice_reply_uses_fallback_for_null_model_content(monkeypatch):
+    from friday.services.agent_planner import generate_voice_reply
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": None}}]}
+
+    monkeypatch.setattr(
+        "friday.services.agent_planner.httpx.post",
+        lambda *_args, **_kwargs: Response(),
+    )
+
+    assert generate_voice_reply("approved purpose", [], "hello") == (
+        "I'm sorry, could you please repeat that?",
+        False,
+    )
