@@ -73,6 +73,20 @@ def test_runtime_stop_retains_live_thread_after_timeout():
     assert runtime._thread is None
 
 
+
+def test_webhook_reply_is_not_marked_delivered_before_delivery_confirmation(tmp_path):
+    history_path = tmp_path / "conversations.jsonl"
+    agent = PersistentActionAgent(CommunicationHub(), lambda _message: "answer", history_path)
+    inbound = CommunicationMessage("whatsapp", "c1", "u1", "question", "wamid.pending")
+
+    result = agent.process_message(inbound, deliver=False)
+    reply = next(message for message in agent.history["whatsapp:c1"]
+                 if message.sender_id == "agent" and message.text == "answer")
+
+    assert result.delivery.detail == "delivery pending webhook"
+    assert reply.metadata["delivered"] is False
+
+
 def test_webhook_retry_does_not_repeat_action_or_successful_reply(tmp_path):
     history_path = tmp_path / "conversations.jsonl"
     calls = []
