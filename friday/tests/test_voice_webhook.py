@@ -15,7 +15,9 @@ def test_twiml_gather_escapes_prompt():
     assert "&lt;hello&gt;" in xml and "input=\"speech\"" in xml
 
 
-def test_voice_webhook_accepts_speech_result():
+def test_voice_webhook_accepts_speech_result(monkeypatch):
+    monkeypatch.delenv("TWILIO_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PUBLIC_VOICE_WEBHOOK_URL", raising=False)
     server = create_voice_webhook_server(lambda form: f"heard: {form.get('SpeechResult')}")
     try:
         import http.client
@@ -107,6 +109,49 @@ def test_voice_session_store_preserves_unreadable_data(tmp_path, contents):
 
     assert path.read_bytes() == contents
     assert path.with_name(path.name + ".corrupt").read_bytes() == contents
+
+
+def test_voice_session_store_serializes_replies_per_session(tmp_path):
+    import threading
+
+    store = VoiceSessionStore(tmp_path / "voice-sessions.json")
+    session_id = store.create("opener")
+    first_started = threading.Event()
+    release_first = threading.Event()
+    calls = []
+    results = {}
+
+    def generator(opener, turns, speech):
+        calls.append((speech, tuple(turns)))
+        if speech == "first":
+            first_started.set()
+            release_first.wait(timeout=2)
+        return f"reply to {speech}"
+
+    first = threading.Thread(
+        target=lambda: results.setdefault("first", store.reply(session_id, "first", generator))
+    )
+    second = threading.Thread(
+        target=lambda: results.setdefault("second", store.reply(session_id, "second", generator))
+    )
+    first.start()
+    assert first_started.wait(timeout=2)
+    second.start()
+    time.sleep(0.05)
+    assert [speech for speech, _turns in calls] == ["first"]
+
+    release_first.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+    assert not first.is_alive() and not second.is_alive()
+    assert [speech for speech, _turns in calls] == ["first", "second"]
+    assert calls[1][1] == (("caller", "first"), ("agent", "reply to first"))
+
+    written = json.loads((tmp_path / "voice-sessions.json").read_bytes()[1:].decode("utf-8"))
+    assert written[session_id]["turns"] == [
+        ["caller", "first"], ["agent", "reply to first"],
+        ["caller", "second"], ["agent", "reply to second"],
+    ]
 
 
 def test_voice_session_store_reuses_matching_corrupt_backup(tmp_path):
