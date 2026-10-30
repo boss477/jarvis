@@ -11,6 +11,13 @@ from .communication_hub import CommunicationHub, CommunicationMessage, DeliveryR
 from .jsonl_store import append_jsonl_record, read_jsonl_records
 
 
+def _message_dedupe_key(channel: str, conversation_id: str, message_id: str) -> str:
+    """Build a stable idempotency key scoped to one provider conversation."""
+    if not message_id:
+        return ""
+    return json.dumps([channel, conversation_id, message_id], ensure_ascii=False, separators=(",", ":"))
+
+
 @dataclass
 class AgentReply:
     message: CommunicationMessage
@@ -47,21 +54,21 @@ class PersistentActionAgent:
                 metadata = message.metadata or {}
                 if (message.message_id and message.sender_id != "agent"
                         and metadata.get("processing_state") == "pending"):
-                    interrupted[f"{message.channel}:{message.message_id}"] = message
+                    interrupted[_message_dedupe_key(message.channel, message.conversation_id, message.message_id)] = message
                 if (message.message_id and message.sender_id != "agent"
                         and metadata.get("processing_state") != "pending"):
-                    self._seen_message_ids.add(f"{message.channel}:{message.message_id}")
+                    self._seen_message_ids.add(_message_dedupe_key(message.channel, message.conversation_id, message.message_id))
                 if metadata.get("event") == "processed":
                     inbound_id = str(metadata.get("inbound_message_id", ""))
                     if inbound_id:
-                        dedupe_key = f"{message.channel}:{inbound_id}"
+                        dedupe_key = _message_dedupe_key(message.channel, message.conversation_id, inbound_id)
                         interrupted.pop(dedupe_key, None)
                         self._seen_message_ids.add(dedupe_key)
                         self._cached_replies[dedupe_key] = str(metadata.get("reply", ""))
                 elif metadata.get("event") == "delivery_result":
                     inbound_id = str(metadata.get("inbound_message_id", ""))
                     if inbound_id:
-                        self._delivery_results[f"{message.channel}:{inbound_id}"] = bool(
+                        self._delivery_results[_message_dedupe_key(message.channel, message.conversation_id, inbound_id)] = bool(
                             metadata.get("delivered", False)
                         )
         for dedupe_key, inbound in interrupted.items():
@@ -91,7 +98,7 @@ class PersistentActionAgent:
     def process_message(self, message: CommunicationMessage, *, deliver: bool) -> AgentReply:
         """Process either a polled event or an HTTP webhook event once."""
         key = f"{message.channel}:{message.conversation_id}"
-        dedupe_key = f"{message.channel}:{message.message_id}" if message.message_id else ""
+        dedupe_key = _message_dedupe_key(message.channel, message.conversation_id, message.message_id)
         duplicate_reply = None
         with self._history_lock:
             if dedupe_key and dedupe_key in self._seen_message_ids:
@@ -148,7 +155,7 @@ class PersistentActionAgent:
         """Persist delivery confirmation for the latest reply to a webhook event."""
         if message.message_id:
             with self._history_lock:
-                dedupe_key = f"{message.channel}:{message.message_id}"
+                dedupe_key = _message_dedupe_key(message.channel, message.conversation_id, message.message_id)
                 self._delivery_results[dedupe_key] = ok
                 self._delivery_in_progress.discard(dedupe_key)
         key = f"{message.channel}:{message.conversation_id}"
@@ -163,7 +170,7 @@ class PersistentActionAgent:
         """Reserve one webhook reply send for this inbound provider message."""
         if not message.message_id:
             return True
-        dedupe_key = f"{message.channel}:{message.message_id}"
+        dedupe_key = _message_dedupe_key(message.channel, message.conversation_id, message.message_id)
         with self._history_lock:
             if self._delivery_results.get(dedupe_key, False):
                 return False
