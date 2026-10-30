@@ -7,6 +7,17 @@ from friday.services.agent_host import (AgentHostLock, _loopback_bind_host,
                                         _setup_status)
 
 
+@pytest.mark.parametrize("error_type", [OSError, ValueError])
+def test_voice_session_cleanup_failure_does_not_abort_host(error_type, capsys):
+    class BrokenVoiceSessions:
+        def cleanup_expired(self):
+            raise error_type("corrupt session store")
+
+    agent_host._cleanup_voice_sessions_safely(BrokenVoiceSessions())
+
+    assert "Voice session cleanup skipped" in capsys.readouterr().out
+
+
 def test_only_one_host_can_own_a_task_store(tmp_path):
     state_path = tmp_path / "tasks.jsonl"
     first = AgentHostLock(state_path)
