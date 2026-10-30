@@ -6,7 +6,6 @@ and control the same task. Execution remains owned by the existing processors.
 from __future__ import annotations
 
 from contextlib import contextmanager
-import os
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -14,7 +13,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from .jsonl_store import append_jsonl_record, read_jsonl_records
+from .jsonl_store import _jsonl_file_lock, append_jsonl_record, read_jsonl_records
 
 
 class TaskStatus(str, Enum):
@@ -269,22 +268,7 @@ class TaskManager:
                     self._process_lock_depth.value -= 1
                 return
 
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            lock_path = Path(f"{self.path}.mutex")
-            with lock_path.open("a+b") as handle:
-                if os.name == "nt":
-                    import msvcrt
-
-                    handle.seek(0, os.SEEK_END)
-                    if handle.tell() == 0:
-                        handle.write(b"\0")
-                        handle.flush()
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-                else:
-                    import fcntl
-
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            with _jsonl_file_lock(self.path):
                 self._process_lock_depth.value = 1
                 try:
                     if refresh:
@@ -292,8 +276,3 @@ class TaskManager:
                     yield
                 finally:
                     self._process_lock_depth.value = 0
-                    if os.name == "nt":
-                        handle.seek(0)
-                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-                    else:
-                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
