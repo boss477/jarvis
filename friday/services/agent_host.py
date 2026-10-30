@@ -105,6 +105,14 @@ def _setup_status() -> dict[str, object]:
     }
 
 
+def _cleanup_voice_sessions_safely(sessions) -> None:
+    """Skip voice-session cleanup errors without taking down other agent channels."""
+    try:
+        sessions.cleanup_expired()
+    except (OSError, ValueError) as exc:
+        print(f"Voice session cleanup skipped: {exc}")
+
+
 def _print_setup_status() -> None:
     import os
     from .voice_webhook import is_public_https_url
@@ -251,14 +259,11 @@ def _run_agent_host(state_path: Path) -> None:
         voice_thread = threading.Thread(target=voice_server.serve_forever,
                                         name="voice-webhook", daemon=True)
         voice_thread.start()
-        VOICE_SESSIONS.cleanup_expired()
+        _cleanup_voice_sessions_safely(VOICE_SESSIONS)
 
         def cleanup_voice_sessions():
             while not voice_cleanup_stop.wait(300):
-                try:
-                    VOICE_SESSIONS.cleanup_expired()
-                except OSError:
-                    pass
+                _cleanup_voice_sessions_safely(VOICE_SESSIONS)
 
         voice_cleanup_thread = threading.Thread(target=cleanup_voice_sessions,
                                                name="voice-session-cleanup", daemon=True)
