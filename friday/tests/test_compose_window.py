@@ -23,6 +23,7 @@ def test_readiness_guides_whatsapp_sender_allowlist_setup(monkeypatch):
     assert "+<countrycode><number>" in status
     assert "restart the persistent agent" in status
 
+
 def test_refresh_pending_prefers_newly_prepared_task_over_previous_selection():
     from types import SimpleNamespace
 
