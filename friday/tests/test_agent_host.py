@@ -1,3 +1,4 @@
+import os
 import pytest
 import httpx
 
@@ -32,7 +33,7 @@ def test_setup_status_distinguishes_whatsapp_cloud_send_from_inbound(monkeypatch
     assert status["whatsapp_inbound_missing"] == [
         "WHATSAPP_VERIFY_TOKEN", "META_APP_SECRET", "WHATSAPP_ALLOWED_SENDERS",
     ]
-    assert status["whatsapp_web_fallback_supported"]
+    assert status["whatsapp_web_fallback_supported"] == (os.name == "nt")
 
 
 def test_setup_status_never_returns_configured_secret_values(monkeypatch):
