@@ -2,14 +2,38 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import errno
 import json
 import os
 from pathlib import Path
 import threading
+import time
 from typing import Any, Iterator
 
 _thread_locks: dict[str, Any] = {}
 _thread_locks_guard = threading.Lock()
+_WINDOWS_LOCK_TIMEOUT_SECONDS = 60.0
+_WINDOWS_LOCK_RETRY_INTERVAL_SECONDS = 0.05
+_WINDOWS_LOCK_CONTENTION_ERRNOS = frozenset(
+    {errno.EACCES, errno.EAGAIN, errno.EDEADLK, errno.EWOULDBLOCK}
+)
+
+
+def _lock_windows_file(handle: Any, msvcrt: Any) -> None:
+    """Retry Windows sidecar-lock contention for a bounded period."""
+    deadline = time.monotonic() + _WINDOWS_LOCK_TIMEOUT_SECONDS
+    while True:
+        handle.seek(0)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        except OSError as exc:
+            if exc.errno not in _WINDOWS_LOCK_CONTENTION_ERRNOS:
+                raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("timed out waiting for JSONL file lock") from exc
+            time.sleep(min(_WINDOWS_LOCK_RETRY_INTERVAL_SECONDS, remaining))
 
 
 @contextmanager
@@ -32,7 +56,7 @@ def _jsonl_file_lock(path: Path):
                     handle.write(b"\0")
                     handle.flush()
                 handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                _lock_windows_file(handle, msvcrt)
             else:
                 import fcntl
 

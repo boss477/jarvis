@@ -1,4 +1,7 @@
+import errno
 from threading import Event, Thread
+
+import pytest
 
 from friday.services import jsonl_store
 
@@ -54,3 +57,62 @@ def test_concurrent_appends_serialize_tail_repair(tmp_path, monkeypatch):
         "first",
         "second",
     ]
+
+
+
+class _FakeLockHandle:
+    def __init__(self):
+        self.seek_calls = 0
+
+    def seek(self, offset, whence=0):
+        self.seek_calls += 1
+
+    def fileno(self):
+        return 7
+
+
+class _FakeMsvcrt:
+    LK_NBLCK = 1
+
+    def __init__(self, *, failures=0, error_number=errno.EACCES):
+        self.failures_remaining = failures
+        self.error_number = error_number
+        self.calls = 0
+
+    def locking(self, fd, mode, nbytes):
+        self.calls += 1
+        if self.failures_remaining:
+            self.failures_remaining -= 1
+            raise OSError(self.error_number, "lock unavailable")
+
+
+def test_windows_lock_retries_contention_until_available(monkeypatch):
+    monkeypatch.setattr(jsonl_store.time, "sleep", lambda _seconds: None)
+    handle = _FakeLockHandle()
+    msvcrt = _FakeMsvcrt(failures=2)
+
+    jsonl_store._lock_windows_file(handle, msvcrt)
+
+    assert msvcrt.calls == 3
+    assert handle.seek_calls == 3
+
+
+def test_windows_lock_times_out_when_contention_persists(monkeypatch):
+    monkeypatch.setattr(jsonl_store, "_WINDOWS_LOCK_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(jsonl_store.time, "sleep", lambda _seconds: None)
+    msvcrt = _FakeMsvcrt(failures=3)
+
+    with pytest.raises(TimeoutError, match="timed out waiting"):
+        jsonl_store._lock_windows_file(_FakeLockHandle(), msvcrt)
+
+    assert msvcrt.calls == 1
+
+
+def test_windows_lock_propagates_non_contention_errors():
+    msvcrt = _FakeMsvcrt(failures=1, error_number=errno.EBADF)
+
+    with pytest.raises(OSError) as exc_info:
+        jsonl_store._lock_windows_file(_FakeLockHandle(), msvcrt)
+
+    assert exc_info.value.errno == errno.EBADF
+    assert msvcrt.calls == 1
