@@ -4,11 +4,23 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Any
 
 from .communication_hub import CommunicationHub
 from .memory_store import MemoryStore
 from .orchestrator import StepPolicy, TaskOrchestrator
 from .workers import WorkerRegistry
+
+
+def _parse_bool(value: Any) -> bool:
+    """Parse explicit boolean values; unknown strings never trigger actions."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().casefold() in {"1", "true", "yes", "on"}
+    return False
 
 
 def register_agent_tools(orchestrator: TaskOrchestrator, hub: CommunicationHub,
@@ -132,7 +144,7 @@ def register_agent_tools(orchestrator: TaskOrchestrator, hub: CommunicationHub,
         lambda args: browser.browser_click(str(args["text"])))
     orchestrator.register_tool("browser_fill", StepPolicy("browser", requires_approval=True),
         lambda args: browser.browser_fill(str(args["label"]), str(args["value"]),
-                                          bool(args.get("submit", False))))
+                                          _parse_bool(args.get("submit", False))))
     orchestrator.register_tool("search_files", StepPolicy("files"),
         search_agent_files)
     orchestrator.register_tool("open_path", StepPolicy("files", requires_approval=True),
