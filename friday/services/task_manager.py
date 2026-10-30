@@ -221,6 +221,8 @@ class TaskManager:
     def _set_status(self, task_id: str, status: TaskStatus) -> Task:
         with self._locked_state():
             task = self._get_required(task_id)
+            if task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}:
+                raise ValueError(f"cannot change terminal task status {task.status.value}")
             task.status = status
             self._persist(task)
             return task
