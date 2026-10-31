@@ -1,4 +1,7 @@
+import httpx
 import pytest
+
+from friday.services import channel_adapters, voice_webhook
 
 from friday.services.channel_adapters import (DiscordAdapter, InstagramAdapter, InstagramPublicPostAdapter,
                                                LinkedInPublicPostAdapter, SlackAdapter, TelegramAdapter,
@@ -272,3 +275,56 @@ def test_telegram_update_parses_text():
 def test_non_text_payloads_are_ignored():
     assert WhatsAppCloudAdapter().parse({"entry": []}) == []
     assert TelegramAdapter().parse({"message": {}}) == []
+
+
+class _FakeVoiceSessions:
+    def __init__(self):
+        self.created = []
+        self.discarded = []
+
+    def create(self, opener):
+        self.created.append(opener)
+        return "session-test"
+
+    def discard(self, session_id):
+        self.discarded.append(session_id)
+
+
+def _configure_voice_call(monkeypatch, sessions):
+    monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACtest")
+    monkeypatch.setenv("TWILIO_AUTH_TOKEN", "test-token")
+    monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15550000001")
+    monkeypatch.setenv("PUBLIC_VOICE_WEBHOOK_URL", "https://voice.example.com/voice")
+    monkeypatch.setattr(voice_webhook, "VOICE_SESSIONS", sessions)
+    monkeypatch.setattr(voice_webhook, "is_public_https_url", lambda _url: True)
+
+
+def test_voice_session_is_preserved_when_twilio_request_times_out(monkeypatch):
+    sessions = _FakeVoiceSessions()
+    _configure_voice_call(monkeypatch, sessions)
+    request = httpx.Request("POST", "https://api.twilio.com/2010-04-01/Accounts/ACtest/Calls.json")
+
+    def timeout(*_args, **_kwargs):
+        raise httpx.ConnectTimeout("request timed out", request=request)
+
+    monkeypatch.setattr(channel_adapters.httpx, "post", timeout)
+
+    with pytest.raises(httpx.ConnectTimeout):
+        TwilioVoiceAdapter().send_message("+15551234567", "Please call me back.")
+
+    assert len(sessions.created) == 1
+    assert sessions.discarded == []
+
+
+def test_voice_session_is_discarded_when_twilio_returns_http_error(monkeypatch):
+    sessions = _FakeVoiceSessions()
+    _configure_voice_call(monkeypatch, sessions)
+    request = httpx.Request("POST", "https://api.twilio.com/2010-04-01/Accounts/ACtest/Calls.json")
+    response = httpx.Response(400, request=request)
+    monkeypatch.setattr(channel_adapters.httpx, "post", lambda *_args, **_kwargs: response)
+
+    with pytest.raises(httpx.HTTPStatusError):
+        TwilioVoiceAdapter().send_message("+15551234567", "Please call me back.")
+
+    assert len(sessions.created) == 1
+    assert sessions.discarded == ["session-test"]
