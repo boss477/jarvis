@@ -11,10 +11,13 @@ import time
 from dotenv import load_dotenv
 
 from .agent_host import AgentHostLock
+from .jsonl_store import _jsonl_file_lock
 
 _MAX_LOG_BYTES = 1_048_576
 _LOG_BACKUP_COUNT = 2
 _MAX_LOG_MESSAGE_BYTES = 8192
+_HOST_OUTPUT_READ_CHARS = 2048
+_HOST_OUTPUT_RECORD_CHARS = 1800
 _LOG_LOCK = threading.Lock()
 
 
@@ -65,31 +68,56 @@ def _append_log(log_path: Path, text: str) -> None:
         message += " [truncated]"
     record = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n".encode("utf-8")
 
-    with _LOG_LOCK:
+    # The in-process lock protects threads; the JSONL sidecar lock also
+    # serializes rotation and appends across independent supervisor processes.
+    with _LOG_LOCK, _jsonl_file_lock(log_path):
         try:
             current_size = log_path.stat().st_size
         except FileNotFoundError:
             current_size = 0
         if current_size + len(record) > _MAX_LOG_BYTES and current_size:
-            for index in range(_LOG_BACKUP_COUNT, 1, -1):
-                source = Path(f"{log_path}.{index - 1}")
-                target = Path(f"{log_path}.{index}")
-                target.unlink(missing_ok=True)
-                if source.exists():
-                    os.replace(source, target)
-            first_backup = Path(f"{log_path}.1")
-            first_backup.unlink(missing_ok=True)
-            if log_path.exists():
-                os.replace(log_path, first_backup)
+            try:
+                for index in range(_LOG_BACKUP_COUNT, 1, -1):
+                    source = Path(f"{log_path}.{index - 1}")
+                    target = Path(f"{log_path}.{index}")
+                    target.unlink(missing_ok=True)
+                    if source.exists():
+                        os.replace(source, target)
+                first_backup = Path(f"{log_path}.1")
+                first_backup.unlink(missing_ok=True)
+                if log_path.exists():
+                    os.replace(log_path, first_backup)
+            except OSError:
+                # Rotation is best-effort on Windows, where another process
+                # may briefly hold a backup open. Keep the active log writable.
+                pass
         with log_path.open("ab") as handle:
             handle.write(record)
 
-
 def _stream_host_output(stream, log_path: Path) -> None:
-    """Drain child output into the bounded supervisor log without blocking stop checks."""
+    """Drain child output with bounded reads and bounded records."""
+    pending = ""
     try:
-        for line in stream:
-            _append_log(log_path, "host: " + line.rstrip("\r\n"))
+        while True:
+            chunk = stream.read(_HOST_OUTPUT_READ_CHARS)
+            if not chunk:
+                break
+            pending += chunk
+            while True:
+                newline = pending.find("\n")
+                if newline >= 0 and newline <= _HOST_OUTPUT_RECORD_CHARS:
+                    line = pending[:newline].rstrip("\r")
+                    pending = pending[newline + 1:]
+                    _append_log(log_path, "host: " + line)
+                    continue
+                if len(pending) > _HOST_OUTPUT_RECORD_CHARS:
+                    part = pending[:_HOST_OUTPUT_RECORD_CHARS]
+                    pending = pending[_HOST_OUTPUT_RECORD_CHARS:]
+                    _append_log(log_path, "host: " + part + " [continued]")
+                    continue
+                break
+        if pending:
+            _append_log(log_path, "host: " + pending.rstrip("\r"))
     except (OSError, ValueError) as exc:
         _append_log(log_path, f"Could not read agent host output ({type(exc).__name__}).")
     finally:
@@ -97,7 +125,6 @@ def _stream_host_output(stream, log_path: Path) -> None:
             stream.close()
         except OSError:
             pass
-
 
 def run_supervisor(state_path: Path | None = None) -> None:
     state_path = state_path or _state_path()
@@ -151,7 +178,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
                 if output_stream is not None:
                     output_thread = threading.Thread(
                         target=_stream_host_output, args=(output_stream, log_path),
-                        name="agent-host-log", daemon=True,
+                        name="agent-host-log", daemon=False,
                     )
                     output_thread.start()
                 _append_log(log_path, f"Started agent host process {process.pid}.")
@@ -168,7 +195,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
                     time.sleep(0.5)
                 exit_code = process.poll()
                 if output_thread is not None:
-                    output_thread.join(timeout=2)
+                    output_thread.join()
 
             except KeyboardInterrupt:
                 if process is not None and process.poll() is None:
@@ -178,6 +205,8 @@ def run_supervisor(state_path: Path | None = None) -> None:
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=5)
+                if output_thread is not None:
+                    output_thread.join()
                 _append_log(log_path, "Supervisor interrupted; agent host stopped.")
                 raise
 

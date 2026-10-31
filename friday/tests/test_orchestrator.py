@@ -19,10 +19,13 @@ def test_orchestrator_stages_approval(tmp_path):
     workers.register("browser", {"browser"}); workers.set_online("browser")
     task = tasks.create("send", [{"tool": "send_email"}]); tasks.start(task.id)
     orchestrator = TaskOrchestrator(tasks, workers)
-    orchestrator.register_tool("send_email", StepPolicy("browser", requires_approval=True), lambda _: "sent")
+    calls = []
+    orchestrator.register_tool("send_email", StepPolicy("browser", requires_approval=True),
+                               lambda _: calls.append("sent") or "sent")
     result = orchestrator.execute_next(task.id)
     assert result["status"] == "waiting_approval"
     assert tasks.get(task.id).status == TaskStatus.WAITING_APPROVAL
+    assert calls == []
 
 
 def test_concurrent_advances_execute_a_side_effect_once(tmp_path):

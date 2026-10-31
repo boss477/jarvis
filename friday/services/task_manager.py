@@ -6,6 +6,7 @@ and control the same task. Execution remains owned by the existing processors.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -16,14 +17,25 @@ from typing import Any
 from .jsonl_store import _jsonl_file_lock, append_jsonl_record, read_jsonl_records
 
 
+_EXECUTION_LOCK_STRIPES = 64
+
+
+def _task_execution_lock_path(path: str | Path, task_id: str) -> Path:
+    """Map task IDs to a fixed set of lock files so sidecars remain bounded."""
+    digest = hashlib.sha256(str(task_id).encode("utf-8")).digest()
+    stripe = int.from_bytes(digest[:4], "big") % _EXECUTION_LOCK_STRIPES
+    return Path(f"{Path(path)}.execution.{stripe:02d}")
+
+
 @contextmanager
 def task_execution_lock(path: str | Path, task_id: str):
     """Exclude recovery of one task while another process is executing it.
 
-    Use a per-task lock so unrelated tasks can continue concurrently. The lock
-    is separate from the JSONL state lock and may span provider side effects.
+    A fixed set of lock stripes bounds persistent sidecars while allowing most
+    unrelated tasks to execute concurrently. The lock is separate from the
+    JSONL state lock and may span provider side effects.
     """
-    execution_path = Path(f"{Path(path)}.execution.{task_id}")
+    execution_path = _task_execution_lock_path(path, task_id)
     with _jsonl_file_lock(execution_path):
         yield
 
@@ -197,7 +209,10 @@ class TaskManager:
         uncertain = ("The host stopped while this step was executing; the external "
                      "outcome is uncertain. Verify the destination before creating a retry.")
         with self._locked_state():
-            task_ids = list(self._tasks)
+            task_ids = [
+                task_id for task_id, task in self._tasks.items()
+                if task.status in {TaskStatus.RUNNING, TaskStatus.PAUSED, TaskStatus.CANCELLED}
+            ]
 
         for task_id in task_ids:
             with task_execution_lock(self.path, task_id):

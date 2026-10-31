@@ -1,10 +1,18 @@
+import io
+import multiprocessing
 from pathlib import Path
+import threading
 
 import pytest
 
 from friday.services import agent_supervisor
 from friday.services.agent_host import AgentHostLock
 from friday.services.agent_supervisor import request_stop, run_supervisor
+
+
+def _append_log_records_in_process(path, prefix, count):
+    for index in range(count):
+        agent_supervisor._append_log(Path(path), f"{prefix}-{index}")
 
 
 def test_request_stop_only_signals_an_active_supervisor(tmp_path):
@@ -30,6 +38,7 @@ def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monk
 
         def __init__(self, command, **kwargs):
             launches.append((command, kwargs))
+            self.stdout = io.StringIO("host output line\n")
 
         def poll(self):
             return 1
@@ -41,6 +50,26 @@ def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monk
         if "restarting in" in message:
             stop_path.write_text("stop", encoding="ascii")
 
+    real_thread = threading.Thread
+    daemon_values = []
+    join_calls = []
+
+    class TrackingThread:
+        def __init__(self, *args, **kwargs):
+            daemon_values.append(kwargs.get("daemon"))
+            self.thread = real_thread(*args, **kwargs)
+
+        def start(self):
+            return self.thread.start()
+
+        def join(self, *args, **kwargs):
+            join_calls.append((args, kwargs))
+            return self.thread.join(*args, **kwargs)
+
+        def is_alive(self):
+            return self.thread.is_alive()
+
+    monkeypatch.setattr(agent_supervisor.threading, "Thread", TrackingThread)
     monkeypatch.setattr(agent_supervisor.subprocess, "Popen", ExitedProcess)
     monkeypatch.setattr(agent_supervisor, "_append_log", append_log)
 
@@ -50,6 +79,58 @@ def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monk
     assert launches[0][0][-2:] == ["-m", "friday.services.agent_host"]
     log = (tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log").read_text()
     assert "Agent host exited with code 1; restarting in 2s." in log
+    assert "Supervisor stopped." in log
+    assert "host: host output line" in log
+    assert daemon_values == [False]
+    assert join_calls == [((), {})]
+    assert not stop_path.exists()
+
+
+def test_supervisor_terminates_running_host_on_stop_request(tmp_path, monkeypatch):
+    state_path = tmp_path / "tasks.jsonl"
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    stop_path = Path(f"{state_path}.supervisor.stop")
+    events = []
+
+    class RunningProcess:
+        pid = 4321
+        returncode = None
+
+        def __init__(self, command, **kwargs):
+            self.polls = 0
+
+        def poll(self):
+            self.polls += 1
+            if self.polls > 3 and self.returncode is None:
+                self.returncode = 0
+            return self.returncode
+
+        def terminate(self):
+            events.append("terminate")
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            events.append("kill")
+            self.returncode = -9
+
+    original_append_log = agent_supervisor._append_log
+
+    def append_log(path, message):
+        original_append_log(path, message)
+        if "Started agent host process" in message:
+            stop_path.write_text("stop", encoding="ascii")
+
+    monkeypatch.setattr(agent_supervisor.subprocess, "Popen", RunningProcess)
+    monkeypatch.setattr(agent_supervisor, "_append_log", append_log)
+
+    run_supervisor(state_path)
+
+    assert events == ["terminate"]
+    log = (tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log").read_text()
+    assert "Stop requested; terminating agent host." in log
     assert "Supervisor stopped." in log
     assert not stop_path.exists()
 
@@ -96,9 +177,78 @@ def test_supervisor_log_rotates_and_bounds_total_size(tmp_path, monkeypatch):
     for index in range(20):
         agent_supervisor._append_log(log_path, f"record-{index}-" + "x" * 1000)
 
-    files = [log_path, *sorted(log_path.parent.glob("agent-supervisor.log.*"))]
+    backups = [log_path.with_name(f"agent-supervisor.log.{index}")
+               for index in range(1, agent_supervisor._LOG_BACKUP_COUNT + 1)
+               if log_path.with_name(f"agent-supervisor.log.{index}").exists()]
+    files = [log_path, *backups]
     assert len(files) <= 3
     assert all(path.stat().st_size <= 256 for path in files)
     assert sum(path.stat().st_size for path in files) <= 3 * 256
     assert "[truncated]" in log_path.read_text(encoding="utf-8")
+    assert log_path.with_name("agent-supervisor.log.1").exists()
 
+
+def test_supervisor_log_rotation_failure_is_best_effort(tmp_path, monkeypatch):
+    log_path = tmp_path / "agent-supervisor.log"
+    monkeypatch.setattr(agent_supervisor, "_MAX_LOG_BYTES", 128)
+    monkeypatch.setattr(agent_supervisor, "_MAX_LOG_MESSAGE_BYTES", 64)
+    log_path.write_bytes(b"x" * 128)
+
+    def fail_replace(_source, _target):
+        raise PermissionError("file is temporarily in use")
+
+    monkeypatch.setattr(agent_supervisor.os, "replace", fail_replace)
+
+    agent_supervisor._append_log(log_path, "record after rotation failure")
+
+    assert "record after rotation failure" in log_path.read_text(encoding="utf-8")
+
+
+def test_supervisor_log_writes_are_serialized_across_processes(tmp_path):
+    log_path = tmp_path / "agent-supervisor.log"
+    context = multiprocessing.get_context("spawn")
+    processes = [
+        context.Process(target=_append_log_records_in_process,
+                        args=(str(log_path), f"worker-{worker}", 30))
+        for worker in range(2)
+    ]
+
+    for process in processes:
+        process.start()
+    for process in processes:
+        process.join(timeout=15)
+
+    assert all(not process.is_alive() for process in processes)
+    assert all(process.exitcode == 0 for process in processes)
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 60
+    assert sum("worker-0-" in line for line in lines) == 30
+    assert sum("worker-1-" in line for line in lines) == 30
+
+
+def test_supervisor_stream_splits_long_unterminated_output(tmp_path, monkeypatch):
+    class TrackingStream(io.StringIO):
+        def __init__(self, value):
+            super().__init__(value)
+            self.read_sizes = []
+
+        def read(self, size=-1):
+            self.read_sizes.append(size)
+            return super().read(size)
+
+    messages = []
+    monkeypatch.setattr(agent_supervisor, "_append_log",
+                        lambda _path, message: messages.append(message))
+    stream = TrackingStream("first\r\n" + "x" * 5000 + "\nlast")
+
+    agent_supervisor._stream_host_output(stream, tmp_path / "agent-supervisor.log")
+
+    assert stream.closed
+    assert stream.read_sizes and set(stream.read_sizes) == {agent_supervisor._HOST_OUTPUT_READ_CHARS}
+    assert messages[0] == "host: first"
+    assert messages[-1] == "host: last"
+    long_parts = [message[len("host: "):].removesuffix(" [continued]")
+                  for message in messages[1:-1]]
+    assert "".join(long_parts) == "x" * 5000
+    assert all(len(message) <= agent_supervisor._HOST_OUTPUT_RECORD_CHARS + 24
+               for message in messages)

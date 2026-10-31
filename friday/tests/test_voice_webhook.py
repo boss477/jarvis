@@ -37,7 +37,8 @@ def test_voice_webhook_accepts_speech_result(monkeypatch):
 def test_voice_webhook_rejects_invalid_signature(monkeypatch):
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "secret")
     monkeypatch.setenv("PUBLIC_VOICE_WEBHOOK_URL", "https://example.test/voice/respond")
-    server = create_voice_webhook_server(lambda form: "should not run")
+    received = []
+    server = create_voice_webhook_server(lambda form: received.append(form) or "should not run")
     try:
         import http.client, threading
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -46,7 +47,9 @@ def test_voice_webhook_rejects_invalid_signature(monkeypatch):
         conn.request("POST", "/voice/respond", "SpeechResult=hello",
                      {"Content-Type": "application/x-www-form-urlencoded",
                       "X-Twilio-Signature": "bad"})
-        assert conn.getresponse().status == 403
+        response = conn.getresponse()
+        assert response.status == 403
+        assert received == []
     finally:
         server.shutdown(); server.server_close()
 

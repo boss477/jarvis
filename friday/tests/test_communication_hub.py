@@ -1,6 +1,6 @@
 from friday.services.action_agent import PersistentActionAgent
 from friday.services.communication_hub import (
-    CommunicationHub, CommunicationMessage, DeliveryResult, build_default_hub,
+    CallbackAdapter, CommunicationHub, CommunicationMessage, DeliveryResult, build_default_hub,
 )
 
 
@@ -64,6 +64,16 @@ def test_default_hub_can_activate_existing_whatsapp_sender():
     hub = build_default_hub(whatsapp_sender=lambda contact, text: sent.append((contact, text)) or "sent")
     result = hub.send("whatsapp", "contact-1", "hello")
     assert result.ok and sent == [("contact-1", "hello")]
+
+
+def test_callback_adapter_treats_unconfigured_sender_result_as_failed_delivery():
+    hub = CommunicationHub()
+    hub.register(CallbackAdapter("whatsapp", lambda _recipient, _text: "WhatsApp is NOT CONFIGURED"))
+
+    result = hub.send("whatsapp", "chat-1", "hello")
+
+    assert not result.ok
+    assert result.detail == "WhatsApp is NOT CONFIGURED"
 
 
 def test_default_webhook_adapters_can_be_polled_without_provider_workers():

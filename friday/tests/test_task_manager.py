@@ -30,6 +30,17 @@ def test_task_manager_uses_shared_jsonl_lock(tmp_path, monkeypatch):
     assert lock_paths == [path, path, path]
 
 
+def test_task_execution_lock_uses_bounded_sidecars(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+
+    for index in range(256):
+        with task_execution_lock(path, f"task-{index}"):
+            pass
+
+    sidecars = list(tmp_path.glob("tasks.jsonl.execution.*.mutex"))
+    assert 0 < len(sidecars) <= 64
+
+
 def _approve_task_in_process(path, task_id, barrier, outcomes):
     manager = TaskManager(path)
     barrier.wait(timeout=10)
@@ -348,6 +359,50 @@ def test_recovery_quarantines_in_flight_steps_after_pause_or_cancel(
 
     with pytest.raises(ValueError, match="not paused or queued"):
         restarted.resume(task.id)
+
+def test_recovery_only_locks_tasks_with_recoverable_statuses(tmp_path, monkeypatch):
+    from friday.services import task_manager as task_manager_module
+
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    queued = manager.create("queued", [{"tool": "send"}])
+    waiting = manager.create("waiting", [{"tool": "send"}])
+    completed = manager.create("completed", [{"tool": "send"}])
+    failed = manager.create("failed", [{"tool": "send"}])
+    running = manager.create("running", [{"tool": "send"}])
+    paused = manager.create("paused", [{"tool": "send"}])
+    cancelled = manager.create("cancelled", [{"tool": "send"}])
+
+    manager.require_approval(waiting.id, "send")
+    manager.start(completed.id)
+    manager.checkpoint(completed.id, success=True, result="sent")
+    manager.start(failed.id)
+    manager.checkpoint(failed.id, success=False, error="provider failed")
+    manager.start(running.id)
+    manager.start(paused.id)
+    manager.pause(paused.id)
+    manager.start(cancelled.id)
+    manager.cancel(cancelled.id)
+
+    original_lock = task_manager_module.task_execution_lock
+    locked_ids = []
+
+    @contextmanager
+    def tracking_lock(lock_path, task_id):
+        locked_ids.append(task_id)
+        with original_lock(lock_path, task_id):
+            yield
+
+    monkeypatch.setattr(task_manager_module, "task_execution_lock", tracking_lock)
+
+    manager.recover_interrupted_tasks()
+
+    assert set(locked_ids) == {running.id, paused.id, cancelled.id}
+    assert queued.id not in locked_ids
+    assert waiting.id not in locked_ids
+    assert completed.id not in locked_ids
+    assert failed.id not in locked_ids
+
 
 def test_recovery_waits_for_active_task_execution_lock(tmp_path):
     path = tmp_path / "tasks.jsonl"

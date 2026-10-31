@@ -76,7 +76,8 @@ class CallbackAdapter:
     def send_message(self, conversation_id: str, text: str) -> DeliveryResult:
         try:
             detail = str(self._sender(conversation_id, text))
-            return DeliveryResult(self.name, conversation_id, True, detail=detail)
+            ok = "not configured" not in detail.lower()
+            return DeliveryResult(self.name, conversation_id, ok, detail=detail)
         except Exception as exc:
             return DeliveryResult(self.name, conversation_id, False, detail=str(exc))
 
