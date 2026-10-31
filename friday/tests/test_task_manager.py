@@ -2,10 +2,14 @@ from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
 from queue import Empty
+from pathlib import Path
+import hashlib
 import threading
 import pytest
 
-from friday.services.task_manager import TaskManager, TaskStatus, task_execution_lock
+from friday.services.task_manager import (
+    TaskManager, TaskStatus, _task_execution_lock_path, task_execution_lock,
+)
 from friday.services.task_commands import TaskCommandService
 
 
@@ -39,6 +43,75 @@ def test_task_execution_lock_uses_bounded_sidecars(tmp_path):
 
     sidecars = list(tmp_path.glob("tasks.jsonl.execution.*.mutex"))
     assert 0 < len(sidecars) <= 64
+
+
+def _legacy_stripe_collision():
+    buckets = {}
+    for index in range(1024):
+        task_id = f"task-{index}"
+        digest = hashlib.sha256(task_id.encode("utf-8")).digest()
+        stripe = int.from_bytes(digest[:4], "big") % 64
+        if stripe in buckets:
+            return buckets[stripe], task_id
+        buckets[stripe] = task_id
+    raise AssertionError("could not find a legacy stripe collision")
+
+
+def test_task_execution_lock_does_not_serialize_legacy_stripe_collisions(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    first_id, second_id = _legacy_stripe_collision()
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_entered = threading.Event()
+    errors = []
+
+    def hold_first():
+        try:
+            with task_execution_lock(path, first_id):
+                first_entered.set()
+                if not release_first.wait(timeout=5):
+                    errors.append("first lock was not released")
+        except Exception as exc:
+            errors.append(exc)
+
+    def acquire_second():
+        try:
+            with task_execution_lock(path, second_id):
+                second_entered.set()
+        except Exception as exc:
+            errors.append(exc)
+
+    first = threading.Thread(target=hold_first)
+    second = threading.Thread(target=acquire_second)
+    first.start()
+    assert first_entered.wait(timeout=2)
+    second.start()
+    try:
+        assert second_entered.wait(timeout=2)
+    finally:
+        release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert errors == []
+    assert _task_execution_lock_path(path, first_id) != _task_execution_lock_path(path, second_id)
+
+
+def test_task_execution_lock_cleanup_preserves_active_sidecars(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    active_id = "active-task"
+    active_sidecar = Path(f"{_task_execution_lock_path(path, active_id)}.mutex")
+
+    with task_execution_lock(path, active_id):
+        for index in range(100):
+            with task_execution_lock(path, f"other-{index}"):
+                pass
+        assert active_sidecar.exists()
+
+    sidecars = list(tmp_path.glob("tasks.jsonl.execution.*.mutex"))
+    assert len(sidecars) <= 64
 
 
 def test_task_execution_lock_retries_after_contention_timeout(tmp_path, monkeypatch):
