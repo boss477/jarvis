@@ -18,6 +18,38 @@ def test_voice_session_cleanup_failure_does_not_abort_host(error_type, capsys):
     assert "Voice session cleanup skipped" in capsys.readouterr().out
 
 
+def test_recovery_notices_distinguish_safe_resume_from_uncertain_outcomes():
+    class FakeTasks:
+        def summary(self, task_id):
+            return {
+                "safe-task": {
+                    "recovery_safe_to_resume": True,
+                    "recovery_required": False,
+                    "status": "paused",
+                },
+                "uncertain-task": {
+                    "recovery_safe_to_resume": False,
+                    "recovery_required": True,
+                    "status": "failed",
+                },
+                "completed-task": {
+                    "recovery_safe_to_resume": False,
+                    "recovery_required": False,
+                    "status": "completed",
+                },
+            }[task_id]
+
+    notices = agent_host._recovery_notices(
+        FakeTasks(), ["safe-task", "uncertain-task", "completed-task"]
+    )
+
+    assert any("safe to resume: safe-task" in notice for notice in notices)
+    assert any("verify destination state before retrying: uncertain-task" in notice
+               for notice in notices)
+    assert any("Marked recovered task(s) complete" in notice
+               and "completed-task" in notice for notice in notices)
+
+
 def test_only_one_host_can_own_a_task_store(tmp_path):
     state_path = tmp_path / "tasks.jsonl"
     first = AgentHostLock(state_path)
