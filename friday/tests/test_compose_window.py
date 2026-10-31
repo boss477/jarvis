@@ -1,4 +1,6 @@
-from friday.services.compose_window import ComposeWindow
+from pathlib import Path
+
+from friday.services.compose_window import ComposeWindow, _configured_state_path
 import pytest
 
 
@@ -123,3 +125,11 @@ def test_compose_text_must_fit_complete_approval_preview(targets, length, valid)
         with pytest.raises(ValueError, match="approval prompt must show the complete text"):
             ComposeWindow.validate_compose_text(text, targets)
 
+
+
+def test_configured_state_path_matches_host_environment(monkeypatch):
+    monkeypatch.setenv("AGENT_TASKS_PATH", "custom-state/tasks.jsonl")
+
+    assert _configured_state_path() == (
+        Path(__file__).resolve().parents[2] / "custom-state" / "tasks.jsonl"
+    )
