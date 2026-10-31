@@ -6,7 +6,7 @@ import threading
 import time
 from pathlib import Path
 
-from .jsonl_store import append_jsonl_record
+from .jsonl_store import _jsonl_file_lock, append_jsonl_record
 
 
 def _read_jsonl_records(path: Path) -> list[dict]:
@@ -53,6 +53,11 @@ class MemoryStore:
         if not terms:
             raise ValueError("memory search query is required")
         requested_scope = scope.strip() or "owner"
-        return [x for x in reversed(self._items)
-                if x.get("scope", "owner") == requested_scope
-                and all(term in x["text"].lower() for term in terms)][:limit]
+        with self._lock:
+            # The composer and host can write through separate MemoryStore
+            # instances. Refresh under the shared file lock before searching.
+            with _jsonl_file_lock(self.path):
+                self._items = _read_jsonl_records(self.path)
+            return [x for x in reversed(self._items)
+                    if x.get("scope", "owner") == requested_scope
+                    and all(term in x["text"].lower() for term in terms)][:limit]
