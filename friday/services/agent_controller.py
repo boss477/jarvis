@@ -140,7 +140,7 @@ class TaskAgentController:
 
     def advance(self, task_id: str) -> str:
         """Advance one task while excluding cross-process startup recovery."""
-        with task_execution_lock(self.tasks.path):
+        with task_execution_lock(self.tasks.path, task_id):
             return self._advance_locked(task_id)
 
     def _advance_locked(self, task_id: str) -> str:
