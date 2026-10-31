@@ -105,6 +105,9 @@ def test_refresh_setup_removes_deleted_dotenv_keys_and_preserves_external_values
     assert os.environ["JARVIS_EXTERNAL_KEY"] == "shell-value"
     assert os.environ["JARVIS_NEW_KEY"] == "new-value"
     assert window._dotenv_keys == {"JARVIS_EXTERNAL_KEY", "JARVIS_NEW_KEY"}
+    assert window.readiness.value.startswith("Saved configuration (restart composer to apply): ready")
+    assert "Close and reopen the composer" in window.status.value
+    assert "rebuild channel adapters" in window.status.value
 
 @pytest.mark.parametrize(
     ("targets", "length", "valid"),
