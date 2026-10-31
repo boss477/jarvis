@@ -25,6 +25,29 @@ _EXTERNAL_COMPLETION_CLAIM = re.compile(
 logger = logging.getLogger(__name__)
 
 
+def approval_text_limit(tool_name: str, args: dict[str, Any]) -> int | None:
+    """Return the maximum text length shown in full in the approval prompt."""
+    if tool_name == "x_post":
+        return 280
+    if tool_name == "send":
+        channel = str(args.get("channel", "")).strip().lower()
+        if channel == "x_public":
+            return 280
+        return 1200 if channel == "voice" else 1600
+    if tool_name == "compose_send":
+        targets = args.get("targets", [])
+        channels = {
+            str(target.get("channel", "")).strip().lower()
+            for target in targets if isinstance(target, dict)
+        } if isinstance(targets, list) else set()
+        if "x_public" in channels:
+            return 280
+        if "voice" in channels:
+            return 1200
+        return 1600
+    return None
+
+
 class TaskAgentController:
     """Create and advance a task from an inbound channel message.
 
@@ -102,18 +125,12 @@ class TaskAgentController:
                     "I can't request approval for an X post longer than "
                     "280 characters. Please shorten it and try again."
                 )
-            if tool_name == "send":
-                limit = 1200 if channel == "voice" else 1600
-                if len(display_text) > limit:
-                    label = "voice opener" if channel == "voice" else "message"
-                    return (
-                        f"I can't request approval for a {label} longer than "
-                        f"{limit:,} characters. Please shorten it and try again."
-                    )
-            elif tool_name in {"compose_send", "x_post"} and len(display_text) > 1600:
+            limit = approval_text_limit(tool_name, args)
+            if limit is not None and len(display_text) > limit:
+                label = "voice opener" if limit == 1200 else "message text"
                 return (
-                    "I can't request approval for message text longer than "
-                    "1,600 characters. Please shorten it and try again."
+                    f"I can't request approval for {label} longer than "
+                    f"{limit:,} characters. Please shorten it and try again."
                 )
             # Execution state is controller-owned. In particular, a model must
             # never pre-approve an external side effect via planner JSON.
