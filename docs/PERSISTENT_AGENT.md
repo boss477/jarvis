@@ -191,10 +191,10 @@ tests. The planner returns durable task steps:
 ```python
 from friday.services.agent_factory import build_persistent_agent
 
-def planner(prompt):
-    # Use the final marker because earlier conversation text may contain the same phrase.
-    text = prompt.rsplit("Current message: ", 1)[-1]
-    return [{"tool": "respond", "args": {"text": text}}]
+def planner(_prompt):
+    # This example uses a fixed response. Do not parse or echo the formatted
+    # planner prompt to recover user text; it is not a structured user input.
+    return [{"tool": "respond", "args": {"text": "Hello from the example planner."}}]
 
 runtime = build_persistent_agent(planner)
 runtime.start()
