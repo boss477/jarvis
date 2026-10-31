@@ -127,7 +127,22 @@ def test_webhook_delivery_claim_allows_only_one_concurrent_send(tmp_path):
     agent = PersistentActionAgent(CommunicationHub(), lambda _message: "answer",
                                   tmp_path / "conversations.jsonl")
     inbound = CommunicationMessage("whatsapp", "c1", "u1", "question", "wamid.1")
-    assert agent.claim_delivery(inbound)
+    barrier = threading.Barrier(3)
+    claims = []
+
+    def claim():
+        barrier.wait(timeout=1)
+        claims.append(agent.claim_delivery(inbound))
+
+    threads = [threading.Thread(target=claim) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    barrier.wait(timeout=1)
+    for thread in threads:
+        thread.join(timeout=1)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert sorted(claims) == [False, True]
     assert not agent.claim_delivery(inbound)
 
     agent.record_delivery(inbound, "temporary send failure", False)
