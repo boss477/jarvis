@@ -168,6 +168,7 @@ def test_recovery_marks_running_step_uncertain_without_replaying(tmp_path):
     ])
     manager.start(task.id)
     manager.checkpoint(task.id, success=True, result="prepared")
+    assert manager.claim_step(task.id, 1)
 
     restarted_manager = TaskManager(path)
     assert restarted_manager.recover_interrupted_tasks() == [task.id]
@@ -188,6 +189,7 @@ def test_pause_rejects_recovered_failed_task_with_interrupted_step(tmp_path):
     manager = TaskManager(path)
     task = manager.create("send a message", [{"tool": "send"}])
     manager.start(task.id)
+    assert manager.claim_step(task.id, 0)
 
     assert manager.recover_interrupted_tasks() == [task.id]
     recovered = manager.get(task.id)
@@ -264,3 +266,20 @@ def test_terminal_task_status_cannot_be_overwritten(tmp_path, terminal_status):
             transition()
         assert manager.get(task.id).status == terminal_status
         assert TaskManager(path).get(task.id).status == terminal_status
+
+
+def test_recovery_pauses_unclaimed_step_and_allows_resume(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("send a message", [{"tool": "send"}])
+    manager.start(task.id)
+
+    restarted = TaskManager(path)
+    assert restarted.recover_interrupted_tasks() == [task.id]
+    recovered = restarted.get(task.id)
+    assert recovered.status == TaskStatus.PAUSED
+    assert recovered.steps[0].status == "pending"
+    assert recovered.steps[0].error == ""
+
+    assert restarted.resume(task.id).status == TaskStatus.RUNNING
+    assert restarted.claim_step(task.id, 0)
