@@ -254,16 +254,45 @@ class TaskAgentController:
                 "linkedin_public": r"\blinkedin\b",
                 "instagram_public": r"\binstagram\b",
             }
+            # Validate only the clause making the completion claim. Later
+            # sentences may mention another platform as a future request.
+            claim_clause = re.split(r"[.!?\n]", reply[claim.start():], maxsplit=1)[0]
             named_channels = {
                 channel for channel, pattern in channel_patterns.items()
-                if re.search(pattern, reply, re.I)
+                if re.search(pattern, claim_clause, re.I)
             }
-            mentions_unsupported_service = re.search(
-                r"\b(?:facebook|youtube|tiktok|threads|reddit|pinterest)\b",
-                reply, re.I,
+
+            # Detect an explicitly named destination even when it is not one
+            # of the supported public channels. This is a positive allowlist:
+            # unknown services (for example, Bluesky) must not be inferred as
+            # successfully posted merely because a different destination worked.
+            generic_destination = re.compile(
+                r"(?:(?:my|our|your|the|a|an)\\s+)*(?:public|social media|social network|"
+                r"internet|web|online|audience|followers|people|everyone|community|profile|"
+                r"page|feed|account|channel|platform|website|site|blog|company|business)"
+                r"(?:\\s+(?:page|profile|feed|account|channel|timeline|site|website|blog))?",
+                re.I,
             )
-            if mentions_unsupported_service:
-                return False
+            destinations = re.findall(
+                r"\\b(?:on|to|via)\\s+(?:the\\s+)?"
+                r"([a-z][a-z0-9&.'+-]*(?:\\s+[a-z][a-z0-9&.'+-]*){0,2})",
+                claim_clause, re.I,
+            )
+            for destination in destinations:
+                for candidate in re.split(r"\\s+(?:and|or|but|then)\\s+|[,/]", destination, flags=re.I):
+                    candidate = candidate.strip()
+                    if not candidate:
+                        continue
+                    if any(re.search(pattern, candidate, re.I)
+                           for pattern in channel_patterns.values()):
+                        continue
+                    candidate = re.sub(
+                        r"\\b(?:update|post|posting|page|profile|feed|account|channel|timeline)\\b.*$",
+                        "", candidate, flags=re.I,
+                    ).strip()
+                    if not candidate or generic_destination.fullmatch(candidate):
+                        continue
+                    return False
 
             successful_channels = set()
             for step in task.steps:
