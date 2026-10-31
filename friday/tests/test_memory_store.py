@@ -93,3 +93,43 @@ def test_search_reloads_records_written_by_another_store(tmp_path):
     added = composer_store.remember("fact saved by the composer")
 
     assert host_store.search("fact saved by the composer") == [added]
+
+
+
+def test_search_missing_file_does_not_create_parent_or_lock_file(tmp_path):
+    path = tmp_path / "not-created-yet" / "memory.jsonl"
+    store = MemoryStore(path)
+
+    assert store.search("anything") == []
+    assert not path.parent.exists()
+    assert not Path(f"{path}.mutex").exists()
+
+
+def test_search_does_not_reparse_unchanged_file(tmp_path, monkeypatch):
+    import friday.services.memory_store as memory_store
+
+    path = tmp_path / "memory.jsonl"
+    item = {
+        "text": "cached fact",
+        "kind": "fact",
+        "source": "user",
+        "scope": "owner",
+        "created_at": 1,
+    }
+    path.write_text(json.dumps(item) + "\n", encoding="utf-8")
+    store = MemoryStore(path)
+
+    original_read = memory_store._read_jsonl_records
+    calls = 0
+
+    def counted_read(source):
+        nonlocal calls
+        calls += 1
+        return original_read(source)
+
+    monkeypatch.setattr(memory_store, "_read_jsonl_records", counted_read)
+
+    assert store.search("cached fact") == [item]
+    assert calls == 1
+    assert store.search("cached fact") == [item]
+    assert calls == 1
