@@ -181,7 +181,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
             else:
                 host_lock.close()
 
-            command = [sys.executable, "-m", "friday.services.agent_host"]
+            command = [sys.executable, "-u", "-m", "friday.services.agent_host"]
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             process = None
             output_thread = None
