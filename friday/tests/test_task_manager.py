@@ -34,6 +34,51 @@ def test_task_manager_uses_shared_jsonl_lock(tmp_path, monkeypatch):
     assert lock_paths == [path, path, path]
 
 
+def test_task_execution_lock_is_reentrant_for_same_thread(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    entered = threading.Event()
+    errors = []
+
+    def nested_lock():
+        try:
+            with task_execution_lock(path, "nested-task"):
+                with task_execution_lock(path, "nested-task"):
+                    entered.set()
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=nested_lock, daemon=True)
+    thread.start()
+    thread.join(timeout=2)
+
+    assert not thread.is_alive(), "nested task lock deadlocked"
+    assert entered.is_set()
+    assert errors == []
+
+
+def test_task_execution_lock_ignores_cleanup_oserror(tmp_path, monkeypatch):
+    from friday.services import task_manager
+
+    def fail_cleanup(_path):
+        raise OSError("registry lock unavailable")
+
+    monkeypatch.setattr(task_manager, "_cleanup_task_execution_lock_sidecars", fail_cleanup)
+    with task_execution_lock(tmp_path / "tasks.jsonl", "cleanup-task"):
+        pass
+
+
+def test_task_execution_lock_cleanup_error_does_not_mask_body_exception(tmp_path, monkeypatch):
+    from friday.services import task_manager
+
+    def fail_cleanup(_path):
+        raise OSError("registry lock unavailable")
+
+    monkeypatch.setattr(task_manager, "_cleanup_task_execution_lock_sidecars", fail_cleanup)
+    with pytest.raises(ValueError, match="body failed"):
+        with task_execution_lock(tmp_path / "tasks.jsonl", "exception-task"):
+            raise ValueError("body failed")
+
+
 def test_task_execution_lock_uses_bounded_sidecars(tmp_path):
     path = tmp_path / "tasks.jsonl"
 
