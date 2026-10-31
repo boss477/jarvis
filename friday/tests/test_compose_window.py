@@ -56,3 +56,47 @@ def test_refresh_pending_prefers_newly_prepared_task_over_previous_selection():
     window._refresh_pending(preferred_task_id="new-task")
 
     assert window.pending_task.get().startswith("new-task | waiting_approval | ")
+
+
+def test_refresh_setup_removes_deleted_dotenv_keys_and_preserves_external_values(
+    monkeypatch, tmp_path
+):
+    import os
+
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "JARVIS_REMOVED_KEY=from-dotenv\\nJARVIS_EXTERNAL_KEY=from-dotenv\\n",
+        encoding="utf-8",
+    )
+    for key in ("JARVIS_REMOVED_KEY", "JARVIS_EXTERNAL_KEY", "JARVIS_NEW_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("JARVIS_EXTERNAL_KEY", "shell-value")
+
+    window = ComposeWindow.__new__(ComposeWindow)
+    window.env_path = env_path
+    window._external_environment_keys = set(os.environ)
+    window._dotenv_keys = {"JARVIS_REMOVED_KEY", "JARVIS_EXTERNAL_KEY"}
+    # Simulate a key loaded from .env at startup after external keys were captured.
+    monkeypatch.setenv("JARVIS_REMOVED_KEY", "old-dotenv-value")
+
+    class Value:
+        def __init__(self):
+            self.value = ""
+
+        def set(self, value):
+            self.value = value
+
+    window.readiness = Value()
+    window.status = Value()
+    monkeypatch.setattr(ComposeWindow, "_readiness_summary", staticmethod(lambda: "ready"))
+    env_path.write_text(
+        "JARVIS_EXTERNAL_KEY=from-dotenv\\nJARVIS_NEW_KEY=new-value\\n",
+        encoding="utf-8",
+    )
+
+    window._refresh_setup()
+
+    assert "JARVIS_REMOVED_KEY" not in os.environ
+    assert os.environ["JARVIS_EXTERNAL_KEY"] == "shell-value"
+    assert os.environ["JARVIS_NEW_KEY"] == "new-value"
+    assert window._dotenv_keys == {"JARVIS_EXTERNAL_KEY", "JARVIS_NEW_KEY"}
