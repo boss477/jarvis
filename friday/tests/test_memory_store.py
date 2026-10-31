@@ -83,3 +83,13 @@ def test_failed_persistence_does_not_add_to_memory(tmp_path, monkeypatch):
         store.remember("not persisted")
 
     assert store.search("not persisted") == []
+
+
+def test_search_reloads_records_written_by_another_store(tmp_path):
+    path = tmp_path / "memory.jsonl"
+    host_store = MemoryStore(path)
+    composer_store = MemoryStore(path)
+
+    added = composer_store.remember("fact saved by the composer")
+
+    assert host_store.search("fact saved by the composer") == [added]
