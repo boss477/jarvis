@@ -232,9 +232,12 @@ run until the next sign-in. A single-instance supervisor writes host output to
 `%LOCALAPPDATA%\Friday\logs\agent-supervisor.log` and restarts an exited host
 with bounded backoff. Pass `-Remove` to request supervisor stop and remove that
 exact shortcut. Stopping during an active action may leave that task marked
-uncertain; it will not be replayed automatically. The host stays in the
-background as the always-on process; open the composer
-separately when you want to create or review a composed send. The host and
+uncertain; it will not be replayed automatically. The sign-in shortcut starts
+only the agent host; it does not start the WhatsApp proxy or Cloudflare Tunnel.
+Start those separately before testing inbound WhatsApp webhooks, or configure
+them as persistent services if they must survive sign-in or reboot. The host
+stays in the background as the always-on process; open the composer separately
+when you want to create or review a composed send. The host and
 composer share the durable task log, with an operating-system file lock so
 task refreshes and approval consumption stay consistent across processes.
 The host prints a local `/healthz` URL; opening it reports worker liveness,
