@@ -215,6 +215,36 @@ def main() -> None:
         host_lock.close()
 
 
+def _recovery_notices(tasks, recovered: list[str]) -> list[str]:
+    resumable, interrupted, completed = [], [], []
+    for task_id in recovered:
+        summary = tasks.summary(task_id)
+        if summary.get("recovery_safe_to_resume"):
+            resumable.append(task_id)
+        elif summary.get("recovery_required"):
+            interrupted.append(task_id)
+        else:
+            completed.append(task_id)
+
+    notices = []
+    if resumable:
+        notices.append(
+            "Recovered task(s) with unclaimed steps safe to resume: "
+            + ", ".join(resumable) + "."
+        )
+    if interrupted:
+        notices.append(
+            "Recovered interrupted task(s) with uncertain outcomes; verify destination "
+            "state before retrying: " + ", ".join(interrupted) + "."
+        )
+    if completed:
+        notices.append(
+            "Marked recovered task(s) complete because no steps remained: "
+            + ", ".join(completed) + "."
+        )
+    return notices
+
+
 def _run_agent_host(state_path: Path) -> None:
     from .voice_webhook import is_public_https_url
 
@@ -222,8 +252,8 @@ def _run_agent_host(state_path: Path) -> None:
     voice_host = _loopback_bind_host("VOICE_WEBHOOK_HOST")
     runtime = build_persistent_agent(plan_with_openai_compatible_model, state_path=state_path)
     recovered = runtime.tasks.recover_interrupted_tasks()
-    if recovered:
-        print(f"Recovered {len(recovered)} interrupted task(s); check destination state before retrying.")
+    for notice in _recovery_notices(runtime.tasks, recovered):
+        print(notice)
     voice_server = None
     voice_thread = None
     server = create_webhook_server(
