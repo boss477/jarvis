@@ -37,10 +37,18 @@ class TaskCommandService:
 
     def recovery_required(self, channel: str, sender_id: str,
                           conversation_id: str) -> list[dict]:
+        """List uncertain tasks and safely resumable unclaimed steps for this conversation."""
         tasks = [task for task in self.manager.list()
                  if task.origin_channel == channel
                  and task.origin_sender_id == sender_id
                  and task.origin_conversation_id == conversation_id
-                 and any(step.status == "interrupted" for step in task.steps)]
+                 and (
+                     any(step.status == "interrupted" for step in task.steps)
+                     or (
+                         task.status == TaskStatus.PAUSED
+                         and task.current_step < len(task.steps)
+                         and task.steps[task.current_step].status == "pending"
+                     )
+                 )]
         tasks.sort(key=lambda task: task.updated_at, reverse=True)
         return [self.manager.summary(task.id) for task in tasks]
