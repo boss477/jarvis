@@ -247,6 +247,54 @@ class TaskAgentController:
         if action == "called" or re.search(r"\b(?:placed|made)\s+(?:a\s+)?call\b", reply, re.I):
             # Twilio's accepted request/SID is not evidence that a person answered.
             return False
+        if action == "posted":
+            public_channels = {"x_public", "linkedin_public", "instagram_public"}
+            channel_patterns = {
+                "x_public": r"\\b(?:x|twitter)\\b",
+                "linkedin_public": r"\\blinkedin\\b",
+                "instagram_public": r"\\binstagram\\b",
+            }
+            named_channels = {
+                channel for channel, pattern in channel_patterns.items()
+                if re.search(pattern, reply, re.I)
+            }
+            mentions_unsupported_service = re.search(
+                r"\\b(?:facebook|youtube|tiktok|threads|reddit|pinterest)\\b",
+                reply, re.I,
+            )
+            if mentions_unsupported_service and not named_channels:
+                return False
+
+            successful_channels = set()
+            for step in task.steps:
+                if step.status != "completed":
+                    continue
+                policy = self.orchestrator.policies.get(step.tool)
+                if not policy or not policy.requires_approval:
+                    continue
+                if step.tool == "x_post" and step.result:
+                    successful_channels.add("x_public")
+                elif step.tool == "send":
+                    channel = str(step.args.get("channel", "")).strip().lower()
+                    if channel in public_channels and step.result:
+                        successful_channels.add(channel)
+                elif step.tool == "compose_send":
+                    try:
+                        payload = json.loads(step.result)
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+                    outcomes = payload.get("results", []) if isinstance(payload, dict) else []
+                    successful_channels.update(
+                        str(item.get("channel", "")).strip().lower()
+                        for item in outcomes
+                        if isinstance(item, dict)
+                        and item.get("ok")
+                        and str(item.get("channel", "")).strip().lower() in public_channels
+                    )
+            if named_channels:
+                return named_channels.issubset(successful_channels)
+            return bool(successful_channels)
+
         for step in task.steps:
             if step.status != "completed":
                 continue
@@ -255,14 +303,6 @@ class TaskAgentController:
                 continue
             if action in {"sent", "emailed", "messaged", "shared"}:
                 if self._delivery_succeeded(step, allowed_channels=None, exclude_voice=True):
-                    return True
-            elif action == "posted":
-                if step.tool == "x_post":
-                    return bool(step.result)
-                if self._delivery_succeeded(
-                    step, allowed_channels={"x_public", "linkedin_public", "instagram_public"},
-                    exclude_voice=True,
-                ):
                     return True
             elif action in {"booked", "scheduled"}:
                 if step.tool == "calendar_add" and step.result:
