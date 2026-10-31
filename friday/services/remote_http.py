@@ -58,7 +58,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
         token = query.get("hub.verify_token", [""])[0]
         challenge = query.get("hub.challenge", [""])[0]
         verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
-        if mode == "subscribe" and verify_token and hmac.compare_digest(token, verify_token):
+        if mode == "subscribe" and verify_token and hmac.compare_digest(
+                token.encode("utf-8"), verify_token.encode("utf-8")
+        ):
             body = challenge.encode()
             self.send_response(200); self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
@@ -68,8 +70,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         endpoint = self.path.split("?", 1)[0].rstrip("/")
         expected = f"Bearer {self.token}" if self.token else ""
+        authorization = self.headers.get("Authorization", "")
         bearer_ok = bool(expected) and hmac.compare_digest(
-            self.headers.get("Authorization", ""), expected
+            authorization.encode("utf-8"), expected.encode("utf-8")
         )
         provider_auth = ((channel_has_meta_secret(endpoint) and bool(os.getenv("META_APP_SECRET")))
                          or (endpoint.endswith("/slack") and bool(os.getenv("SLACK_SIGNING_SECRET")))
