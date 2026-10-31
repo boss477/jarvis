@@ -16,6 +16,18 @@ from typing import Any
 from .jsonl_store import _jsonl_file_lock, append_jsonl_record, read_jsonl_records
 
 
+@contextmanager
+def task_execution_lock(path: str | Path):
+    """Exclude startup recovery while another process executes a task.
+
+    This lock is separate from the JSONL state lock: it can be held across
+    provider side effects without blocking task-state reads and checkpoints.
+    """
+    execution_path = Path(f"{Path(path)}.execution")
+    with _jsonl_file_lock(execution_path):
+        yield
+
+
 class TaskStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -186,40 +198,41 @@ class TaskManager:
         recovered = []
         uncertain = ("The host stopped while this step was executing; the external "
                      "outcome is uncertain. Verify the destination before creating a retry.")
-        with self._locked_state():
-            for task in self._tasks.values():
-                if task.status == TaskStatus.RUNNING:
-                    if task.current_step >= len(task.steps):
-                        task.status = TaskStatus.COMPLETED
-                    else:
-                        step = task.steps[task.current_step]
-                        if step.status == "pending":
-                            # The durable claim never happened, so no side effect started.
-                            task.status = TaskStatus.PAUSED
+        with task_execution_lock(self.path):
+            with self._locked_state():
+                for task in self._tasks.values():
+                    if task.status == TaskStatus.RUNNING:
+                        if task.current_step >= len(task.steps):
+                            task.status = TaskStatus.COMPLETED
                         else:
-                            step.status = "interrupted"
-                            step.error = uncertain
-                            step.approved = False
+                            step = task.steps[task.current_step]
+                            if step.status == "pending":
+                                # The durable claim never happened, so no side effect started.
+                                task.status = TaskStatus.PAUSED
+                            else:
+                                step.status = "interrupted"
+                                step.error = uncertain
+                                step.approved = False
+                                task.status = TaskStatus.FAILED
+                    elif task.status in {TaskStatus.PAUSED, TaskStatus.CANCELLED}:
+                        if task.current_step >= len(task.steps):
+                            continue
+                        step = task.steps[task.current_step]
+                        if step.status != "running":
+                            continue
+                        # Pause/cancel may race with an external call. Never make a
+                        # possibly completed side effect runnable again after restart.
+                        step.status = "interrupted"
+                        step.error = uncertain
+                        step.approved = False
+                        if task.status == TaskStatus.PAUSED:
                             task.status = TaskStatus.FAILED
-                elif task.status in {TaskStatus.PAUSED, TaskStatus.CANCELLED}:
-                    if task.current_step >= len(task.steps):
+                        # Preserve CANCELLED as a terminal task state.
+                    else:
                         continue
-                    step = task.steps[task.current_step]
-                    if step.status != "running":
-                        continue
-                    # Pause/cancel may race with an external call. Never make a
-                    # possibly completed side effect runnable again after restart.
-                    step.status = "interrupted"
-                    step.error = uncertain
-                    step.approved = False
-                    if task.status == TaskStatus.PAUSED:
-                        task.status = TaskStatus.FAILED
-                    # Preserve CANCELLED as a terminal task state.
-                else:
-                    continue
-                task.approval_reason = ""
-                self._persist(task)
-                recovered.append(task.id)
+                    task.approval_reason = ""
+                    self._persist(task)
+                    recovered.append(task.id)
         return recovered
 
     def checkpoint(self, task_id: str, *, success: bool, result: str = "", error: str = "") -> Task:
