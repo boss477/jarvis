@@ -189,10 +189,19 @@ LM Studio/OpenAI-compatible model, OpenRouter, or a deterministic planner for
 tests. The planner returns durable task steps:
 
 ```python
+import re
+
 from friday.services.agent_factory import build_persistent_agent
 
-def planner(text):
-    return [{"tool": "send", "args": {"text": text}}]
+def planner(prompt):
+    # The controller includes the inbound route and current message in prompt.
+    channel = re.search(r"(?m)^Channel: (.+)$", prompt).group(1)
+    recipient = re.search(r"(?m)^Conversation ID: (.+)$", prompt).group(1)
+    text = prompt.split("Current message: ", 1)[1]
+    return [{
+        "tool": "send",
+        "args": {"channel": channel, "recipient": recipient, "text": text},
+    }]
 
 runtime = build_persistent_agent(planner)
 runtime.start()
