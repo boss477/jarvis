@@ -257,6 +257,10 @@ class TaskAgentController:
             # Validate only the clause making the completion claim. Later
             # sentences may mention another platform as a future request.
             claim_clause = re.split(r"[.!?\n]", reply[claim.start():], maxsplit=1)[0]
+            claim_clause = re.split(
+                r"\s+(?:and\s+then|but|while|because|so)\s+",
+                claim_clause, maxsplit=1, flags=re.I,
+            )[0]
             named_channels = {
                 channel for channel, pattern in channel_patterns.items()
                 if re.search(pattern, claim_clause, re.I)
@@ -279,11 +283,6 @@ class TaskAgentController:
                 claim_clause, re.I,
             )
             for destination in destinations:
-                # "and then" starts a follow-up action, not another destination.
-                destination = re.split(
-                    r"\s+(?:and\s+then|but|while|because|so)\s+",
-                    destination, maxsplit=1, flags=re.I,
-                )[0]
                 for candidate in re.split(r"\s+(?:and|or)\s+|[,/]", destination, flags=re.I):
                     candidate = candidate.strip()
                     if not candidate or generic_destination.fullmatch(candidate):
