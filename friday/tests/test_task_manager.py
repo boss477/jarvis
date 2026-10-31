@@ -268,6 +268,28 @@ def test_terminal_task_status_cannot_be_overwritten(tmp_path, terminal_status):
         assert TaskManager(path).get(task.id).status == terminal_status
 
 
+def test_recovery_query_exposes_safe_unclaimed_steps_to_the_origin_conversation(tmp_path):
+    manager = TaskManager(tmp_path / "tasks.jsonl")
+    task = manager.create(
+        "send a message",
+        [{"tool": "send"}],
+        origin_channel="whatsapp",
+        origin_sender_id="user-1",
+        origin_conversation_id="chat-1",
+    )
+    manager.start(task.id)
+    manager.recover_interrupted_tasks()
+
+    commands = TaskCommandService(manager)
+    recovered = commands.recovery_required("whatsapp", "user-1", "chat-1")
+
+    assert [item["id"] for item in recovered] == [task.id]
+    assert recovered[0]["status"] == "paused"
+    assert recovered[0]["recovery_safe_to_resume"] is True
+    assert recovered[0]["recovery_required"] is False
+    assert commands.recovery_required("whatsapp", "user-1", "other-chat") == []
+
+
 def test_recovery_pauses_unclaimed_step_and_allows_resume(tmp_path):
     path = tmp_path / "tasks.jsonl"
     manager = TaskManager(path)
