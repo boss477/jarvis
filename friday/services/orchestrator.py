@@ -5,7 +5,7 @@ import threading
 from typing import Any, Callable
 from .agent_registry import AgentRegistry
 from .connectors import ConnectorRegistry
-from .task_manager import TaskManager, TaskStatus
+from .task_manager import TaskManager, TaskStatus, task_execution_lock
 from .workers import WorkerRegistry
 
 @dataclass
@@ -34,7 +34,8 @@ class TaskOrchestrator:
         with self._task_locks_guard:
             task_lock = self._task_locks.setdefault(task_id, threading.Lock())
         with task_lock:
-            return self._execute_next_locked(task_id)
+            with task_execution_lock(self.tasks.path, task_id):
+                return self._execute_next_locked(task_id)
 
     def _execute_next_locked(self, task_id: str) -> dict[str, Any]:
         if task_id in self._checkpoint_failures:
