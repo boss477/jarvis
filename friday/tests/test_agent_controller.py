@@ -254,7 +254,7 @@ def test_standard_x_post_at_280_character_limit_can_be_approved(tmp_path):
     assert f"Approve this public X post: {text}" in reply
 
 
-def test_checkpoint_failure_warns_to_verify_before_retry(tmp_path, monkeypatch):
+def test_checkpoint_failure_warns_without_exposing_internal_error(tmp_path, monkeypatch, caplog):
     tasks = TaskManager(tmp_path / "tasks.jsonl")
     task = tasks.create("send a message", [{"tool": "send"}])
     tasks.start(task.id)
@@ -274,4 +274,6 @@ def test_checkpoint_failure_warns_to_verify_before_retry(tmp_path, monkeypatch):
 
     assert "an action may have run" in reply
     assert "verify the destination before retrying" in reply.lower()
+    assert "disk full" not in reply
     assert " failed:" not in reply.lower()
+    assert "disk full" in caplog.text
