@@ -73,6 +73,25 @@ class TaskAgentController:
             say = step.get("say", "")
             if not isinstance(say, str):
                 raise ValueError("planner step say must be text")
+            # Approval prompts must show the entire side-effecting text. These
+            # limits match the prompts below; reject oversized content before
+            # creating a task so approval cannot cover only a truncated preview.
+            tool_name = step["tool"]
+            display_text = str(args.get("text", ""))
+            if tool_name == "send":
+                channel = str(args.get("channel", "")).lower()
+                limit = 1200 if channel == "voice" else 1600
+                if len(display_text) > limit:
+                    label = "voice opener" if channel == "voice" else "message"
+                    return (
+                        f"I can't request approval for a {label} longer than "
+                        f"{limit:,} characters. Please shorten it and try again."
+                    )
+            elif tool_name in {"compose_send", "x_post"} and len(display_text) > 1600:
+                return (
+                    "I can't request approval for message text longer than "
+                    "1,600 characters. Please shorten it and try again."
+                )
             # Execution state is controller-owned. In particular, a model must
             # never pre-approve an external side effect via planner JSON.
             normalized_steps.append({
