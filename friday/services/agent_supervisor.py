@@ -5,11 +5,17 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 from dotenv import load_dotenv
 
 from .agent_host import AgentHostLock
+
+_MAX_LOG_BYTES = 1_048_576
+_LOG_BACKUP_COUNT = 2
+_MAX_LOG_MESSAGE_BYTES = 8192
+_LOG_LOCK = threading.Lock()
 
 
 def _state_path() -> Path:
@@ -49,8 +55,48 @@ def _log_path() -> Path:
 
 
 def _append_log(log_path: Path, text: str) -> None:
-    with log_path.open("a", encoding="utf-8") as handle:
-        handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {text}\n")
+    """Append one bounded log record, rotating the active log and two backups."""
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    message = str(text)
+    max_message_bytes = max(1, min(_MAX_LOG_MESSAGE_BYTES, _MAX_LOG_BYTES - 64))
+    encoded_message = message.encode("utf-8", errors="replace")
+    if len(encoded_message) > max_message_bytes:
+        message = encoded_message[:max_message_bytes].decode("utf-8", errors="ignore")
+        message += " [truncated]"
+    record = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\\n".encode("utf-8")
+
+    with _LOG_LOCK:
+        try:
+            current_size = log_path.stat().st_size
+        except FileNotFoundError:
+            current_size = 0
+        if current_size + len(record) > _MAX_LOG_BYTES and current_size:
+            for index in range(_LOG_BACKUP_COUNT, 1, -1):
+                source = Path(f"{log_path}.{index - 1}")
+                target = Path(f"{log_path}.{index}")
+                target.unlink(missing_ok=True)
+                if source.exists():
+                    os.replace(source, target)
+            first_backup = Path(f"{log_path}.1")
+            first_backup.unlink(missing_ok=True)
+            if log_path.exists():
+                os.replace(log_path, first_backup)
+        with log_path.open("ab") as handle:
+            handle.write(record)
+
+
+def _stream_host_output(stream, log_path: Path) -> None:
+    """Drain child output into the bounded supervisor log without blocking stop checks."""
+    try:
+        for line in stream:
+            _append_log(log_path, "host: " + line.rstrip("\\r\\n"))
+    except (OSError, ValueError) as exc:
+        _append_log(log_path, f"Could not read agent host output ({type(exc).__name__}).")
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
 
 
 def run_supervisor(state_path: Path | None = None) -> None:
@@ -93,26 +139,37 @@ def run_supervisor(state_path: Path | None = None) -> None:
             command = [sys.executable, "-m", "friday.services.agent_host"]
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             process = None
+            output_thread = None
             try:
-                with log_path.open("a", encoding="utf-8") as output:
-                    process = subprocess.Popen(
-                        command, cwd=repository_root, stdin=subprocess.DEVNULL,
-                        stdout=output, stderr=subprocess.STDOUT,
-                        creationflags=creation_flags,
+                process = subprocess.Popen(
+                    command, cwd=repository_root, stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1,
+                    creationflags=creation_flags,
+                )
+                output_stream = getattr(process, "stdout", None)
+                if output_stream is not None:
+                    output_thread = threading.Thread(
+                        target=_stream_host_output, args=(output_stream, log_path),
+                        name="agent-host-log", daemon=True,
                     )
-                    _append_log(log_path, f"Started agent host process {process.pid}.")
-                    while process.poll() is None:
-                        if stop_path.exists():
-                            _append_log(log_path, "Stop requested; terminating agent host.")
-                            process.terminate()
-                            try:
-                                process.wait(timeout=10)
-                            except subprocess.TimeoutExpired:
-                                process.kill()
-                                process.wait(timeout=5)
-                            break
-                        time.sleep(0.5)
-                    exit_code = process.poll()
+                    output_thread.start()
+                _append_log(log_path, f"Started agent host process {process.pid}.")
+                while process.poll() is None:
+                    if stop_path.exists():
+                        _append_log(log_path, "Stop requested; terminating agent host.")
+                        process.terminate()
+                        try:
+                            process.wait(timeout=10)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=5)
+                        break
+                    time.sleep(0.5)
+                exit_code = process.poll()
+                if output_thread is not None:
+                    output_thread.join(timeout=2)
+
             except KeyboardInterrupt:
                 if process is not None and process.poll() is None:
                     process.terminate()
