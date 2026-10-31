@@ -20,6 +20,9 @@ class ComposeWindow:
         self.env_path = Path(__file__).resolve().parents[1] / ".env"
         self._external_environment_keys = set(os.environ)
         load_dotenv(self.env_path)
+        # Track keys provided by .env so Refresh setup can remove values that
+        # were deleted from the file without touching shell-provided settings.
+        self._dotenv_keys = set(dotenv_values(self.env_path))
         self.runtime = runtime or build_persistent_agent(plan_with_openai_compatible_model)
         self.root = tk.Tk()
         self.root.title("Jarvis · Compose")
@@ -275,13 +278,19 @@ class ComposeWindow:
             messagebox.showerror("Provider settings", str(exc))
 
     def _refresh_setup(self):
-        for key, value in dotenv_values(self.env_path).items():
+        current_values = dotenv_values(self.env_path)
+        current_keys = set(current_values)
+        for key in self._dotenv_keys - current_keys:
+            if key not in self._external_environment_keys:
+                os.environ.pop(key, None)
+        for key, value in current_values.items():
             if key in self._external_environment_keys:
                 continue
             if value is None:
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+        self._dotenv_keys = current_keys
         self.readiness.set(self._readiness_summary())
         self.status.set("Setup status refreshed. Restart the persistent agent after changing webhook settings.")
 
