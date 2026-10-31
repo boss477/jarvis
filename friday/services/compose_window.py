@@ -10,6 +10,7 @@ from tkinter import messagebox, ttk
 from dotenv import load_dotenv
 from dotenv import dotenv_values
 
+from .agent_controller import approval_text_limit
 from .agent_planner import plan_with_openai_compatible_model
 from .agent_factory import build_persistent_agent
 from .remote_http import whatsapp_sender_allowlist_configured
@@ -217,6 +218,23 @@ class ComposeWindow:
         return getattr(self, "task_id", "")
 
     @staticmethod
+    def validate_compose_text(text, targets):
+        """Refuse text that the approval prompt would truncate."""
+        limit = approval_text_limit("compose_send", {"targets": targets})
+        if limit is None or len(text) <= limit:
+            return
+        if limit == 280:
+            label = "X post"
+        elif limit == 1200:
+            label = "voice call opener"
+        else:
+            label = "message"
+        raise ValueError(
+            f"{label} cannot exceed {limit:,} characters because the approval "
+            "prompt must show the complete text. Please shorten it and try again."
+        )
+
+    @staticmethod
     def validate_target(channel, recipient, supported_channels):
         channel = str(channel).strip().lower()
         recipient = str(recipient).strip()
@@ -358,6 +376,11 @@ class ComposeWindow:
         if not text or not parsed:
             messagebox.showerror("Missing information", "Enter a message and at least one destination.")
             return
+        try:
+            self.validate_compose_text(text, parsed)
+        except ValueError as exc:
+            messagebox.showerror("Message too long", str(exc))
+            return
         self.send_button.configure(state="disabled")
         self.status.set("Preparing approval task…")
         self.root.update_idletasks()
@@ -456,6 +479,11 @@ class ComposeWindow:
         text = str(payload.get("text", ""))
         targets = [{"channel": item["channel"], "recipient": item["recipient"]}
                    for item in failed]
+        try:
+            self.validate_compose_text(text, targets)
+        except ValueError as exc:
+            messagebox.showerror("Message too long", str(exc))
+            return
         steps = [{"tool": "compose_send", "args": {"targets": targets, "text": text},
                   "say": "Retry failed composed destinations"}]
         retry_task = self.runtime.tasks.create(
