@@ -299,17 +299,36 @@ def _configure_voice_call(monkeypatch, sessions):
     monkeypatch.setattr(voice_webhook, "is_public_https_url", lambda _url: True)
 
 
-def test_voice_session_is_preserved_when_twilio_request_times_out(monkeypatch):
+@pytest.mark.parametrize("error_type", [httpx.ConnectError, httpx.ConnectTimeout])
+def test_voice_session_is_discarded_when_twilio_connection_fails(monkeypatch, error_type):
     sessions = _FakeVoiceSessions()
     _configure_voice_call(monkeypatch, sessions)
     request = httpx.Request("POST", "https://api.twilio.com/2010-04-01/Accounts/ACtest/Calls.json")
 
-    def timeout(*_args, **_kwargs):
-        raise httpx.ConnectTimeout("request timed out", request=request)
+    def fail_connection(*_args, **_kwargs):
+        raise error_type("connection failed", request=request)
 
-    monkeypatch.setattr(channel_adapters.httpx, "post", timeout)
+    monkeypatch.setattr(channel_adapters.httpx, "post", fail_connection)
 
-    with pytest.raises(httpx.ConnectTimeout):
+    with pytest.raises(error_type):
+        TwilioVoiceAdapter().send_message("+15551234567", "Please call me back.")
+
+    assert len(sessions.created) == 1
+    assert sessions.discarded == ["session-test"]
+
+
+def test_voice_session_is_preserved_when_twilio_read_times_out(monkeypatch):
+    sessions = _FakeVoiceSessions()
+    _configure_voice_call(monkeypatch, sessions)
+    request = httpx.Request("POST", "https://api.twilio.com/2010-04-01/Accounts/ACtest/Calls.json")
+    monkeypatch.setattr(
+        channel_adapters.httpx, "post",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            httpx.ReadTimeout("response timed out", request=request)
+        ),
+    )
+
+    with pytest.raises(httpx.ReadTimeout):
         TwilioVoiceAdapter().send_message("+15551234567", "Please call me back.")
 
     assert len(sessions.created) == 1
