@@ -1,4 +1,5 @@
 import http.client
+import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -78,6 +79,31 @@ def test_whatsapp_proxy_never_exposes_health_or_other_paths():
         assert response.read() == b"not found"
         connection.close()
     finally:
+        proxy.shutdown()
+        proxy.server_close()
+
+
+def test_whatsapp_proxy_closes_stalled_request_body():
+    proxy = create_whatsapp_proxy_server(port=0, upstream_port=1)
+    proxy.RequestHandlerClass.timeout = 0.1
+    thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+    thread.start()
+    client = socket.create_connection(("127.0.0.1", proxy.server_port), timeout=2)
+    client.settimeout(2)
+    try:
+        client.sendall(
+            b"POST /whatsapp HTTP/1.1\\r\\n"
+            b"Host: localhost\\r\\n"
+            b"Content-Length: 10\\r\\n"
+            b"\\r\\n"
+        )
+        try:
+            response = client.recv(1)
+        except ConnectionResetError:
+            response = b""
+        assert response == b""
+    finally:
+        client.close()
         proxy.shutdown()
         proxy.server_close()
 
