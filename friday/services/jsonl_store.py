@@ -71,6 +71,96 @@ def _jsonl_file_lock(path: Path):
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+
+# Non-blocking locks are used by per-task execution locks. Their separate local
+# lock registry lets a caller release the global registry lock when a task is
+# busy, so unrelated tasks do not wait behind a long-running side effect.
+_try_thread_locks: dict[str, Any] = {}
+_try_thread_locks_guard = threading.Lock()
+
+
+def _try_jsonl_file_lock(path: str | Path) -> tuple[Any, Any, bool] | None:
+    """Try to acquire a sidecar lock without waiting; return its release handle."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = Path(f"{target}.mutex")
+    key = str(lock_path.resolve())
+    with _try_thread_locks_guard:
+        local_lock = _try_thread_locks.setdefault(key, threading.Lock())
+    if not local_lock.acquire(blocking=False):
+        return None
+
+    handle = None
+    try:
+        handle = lock_path.open("a+b")
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\\0")
+                handle.flush()
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                if exc.errno not in _WINDOWS_LOCK_CONTENTION_ERRNOS:
+                    raise
+                handle.close()
+                local_lock.release()
+                return None
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                if exc.errno not in _WINDOWS_LOCK_CONTENTION_ERRNOS:
+                    raise
+                handle.close()
+                local_lock.release()
+                return None
+        return handle, local_lock, os.name == "nt"
+    except Exception:
+        if handle is not None and not handle.closed:
+            handle.close()
+        local_lock.release()
+        raise
+
+
+def _release_try_jsonl_file_lock(lock: tuple[Any, Any, bool]) -> None:
+    """Release a lock returned by _try_jsonl_file_lock."""
+    handle, local_lock, is_windows = lock
+    try:
+        if is_windows:
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        try:
+            handle.close()
+        finally:
+            local_lock.release()
+
+
+def _forget_try_jsonl_thread_lock(path: str | Path) -> None:
+    """Forget an idle local lock after its sidecar has been safely removed."""
+    key = str(Path(f"{Path(path)}.mutex").resolve())
+    with _try_thread_locks_guard:
+        local_lock = _try_thread_locks.get(key)
+        if local_lock is None or not local_lock.acquire(blocking=False):
+            return
+        try:
+            if _try_thread_locks.get(key) is local_lock:
+                _try_thread_locks.pop(key, None)
+        finally:
+            local_lock.release()
+
 def _read_jsonl_records_unlocked(source: Path) -> Iterator[dict[str, Any]]:
     if not source.exists():
         return
