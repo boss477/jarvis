@@ -155,6 +155,13 @@ class TaskManager:
             interrupted = next((step for step in task.steps if step.status == "interrupted"), None)
             failed_step = next((step for step in reversed(task.steps)
                                 if step.status in {"failed", "interrupted"}), None)
+            current_step = (task.steps[task.current_step]
+                            if task.current_step < len(task.steps) else None)
+            recovery_safe_to_resume = (
+                task.status == TaskStatus.PAUSED
+                and current_step is not None
+                and current_step.status == "pending"
+            )
             return {
                 "id": task.id,
                 "prompt": task.prompt,
@@ -162,8 +169,9 @@ class TaskManager:
                 "current_step": task.current_step,
                 "total_steps": len(task.steps),
                 "approval_reason": task.approval_reason,
-                "next_step": task.steps[task.current_step].tool if task.current_step < len(task.steps) else None,
+                "next_step": current_step.tool if current_step else None,
                 "recovery_required": interrupted is not None,
+                "recovery_safe_to_resume": recovery_safe_to_resume,
                 "error": failed_step.error if failed_step else "",
             }
 
