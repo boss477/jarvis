@@ -186,10 +186,12 @@ def run_supervisor(state_path: Path | None = None) -> None:
             process = None
             output_thread = None
             try:
+                child_env = os.environ.copy()
+                child_env["AGENT_TASKS_PATH"] = str(state_path.resolve())
                 process = subprocess.Popen(
                     command, cwd=repository_root, stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    creationflags=creation_flags,
+                    creationflags=creation_flags, env=child_env,
                 )
                 output_stream = getattr(process, "stdout", None)
                 if output_stream is not None:
