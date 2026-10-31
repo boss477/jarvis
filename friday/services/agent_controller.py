@@ -78,8 +78,27 @@ class TaskAgentController:
             # creating a task so approval cannot cover only a truncated preview.
             tool_name = step["tool"]
             display_text = str(args.get("text", ""))
+            channel = str(args.get("channel", "")).strip().lower()
+            targets = args.get("targets", [])
+            has_public_x_target = (
+                tool_name == "x_post"
+                or (tool_name == "send" and channel == "x_public")
+                or (
+                    tool_name == "compose_send"
+                    and isinstance(targets, list)
+                    and any(
+                        isinstance(target, dict)
+                        and str(target.get("channel", "")).strip().lower() == "x_public"
+                        for target in targets
+                    )
+                )
+            )
+            if has_public_x_target and len(display_text) > 280:
+                return (
+                    "I can't request approval for an X post longer than "
+                    "280 characters. Please shorten it and try again."
+                )
             if tool_name == "send":
-                channel = str(args.get("channel", "")).lower()
                 limit = 1200 if channel == "voice" else 1600
                 if len(display_text) > limit:
                     label = "voice opener" if channel == "voice" else "message"

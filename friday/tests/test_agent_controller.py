@@ -209,7 +209,11 @@ def test_linkedin_post_success_supports_accurate_posted_claim(tmp_path):
                   "text": "x" * 1201}, "1,200"),
         ("compose_send", {"targets": [{"channel": "whatsapp", "recipient": "15551234567"}],
                           "text": "x" * 1601}, "1,600"),
-        ("x_post", {"text": "x" * 1601}, "1,600"),
+        ("x_post", {"text": "x" * 281}, "280"),
+        ("send", {"channel": "x_public", "recipient": "public",
+                  "text": "x" * 281}, "280"),
+        ("compose_send", {"targets": [{"channel": "x_public", "recipient": "public"}],
+                          "text": "x" * 281}, "280"),
     ],
 )
 def test_oversized_approval_text_is_rejected_before_task_creation(
@@ -227,3 +231,24 @@ def test_oversized_approval_text_is_rejected_before_task_creation(
     assert "Please shorten it and try again" in reply
     assert tasks.list() == []
 
+
+
+def test_standard_x_post_at_280_character_limit_can_be_approved(tmp_path):
+    tasks = TaskManager(tmp_path / "tasks.jsonl")
+    workers = WorkerRegistry()
+    workers.register("local", {"communication"})
+    workers.set_online("local")
+    orchestrator = TaskOrchestrator(tasks, workers, ConnectorRegistry())
+    orchestrator.register_tool(
+        "x_post", StepPolicy("communication", requires_approval=True),
+        lambda _args: "posted",
+    )
+    text = "x" * 280
+    controller = TaskAgentController(
+        tasks, orchestrator, lambda _prompt: [{"tool": "x_post", "args": {"text": text}}],
+    )
+
+    reply = controller.handle(CommunicationMessage("whatsapp", "c1", "u1", "post this"))
+
+    assert tasks.list()[0].status == TaskStatus.WAITING_APPROVAL
+    assert f"Approve this public X post: {text}" in reply
