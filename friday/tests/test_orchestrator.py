@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 import threading
 import pytest
 
@@ -188,3 +189,68 @@ def test_checkpoint_failure_does_not_reclassify_successful_side_effect(tmp_path,
     assert "disk full" in result["error"]
     assert sent == ["sent"]
     assert checkpoint_results == [True]
+
+
+
+def test_recovery_waits_for_active_orchestrator_side_effect(tmp_path, monkeypatch):
+    from friday.services import task_manager as task_manager_module
+
+    path = tmp_path / "tasks.jsonl"
+    tasks = TaskManager(path)
+    task = tasks.create("send", [{"tool": "send"}])
+    tasks.start(task.id)
+    workers = WorkerRegistry()
+    workers.register("sender", {"messaging"})
+    workers.set_online("sender")
+    orchestrator = TaskOrchestrator(tasks, workers)
+    entered = threading.Event()
+    release = threading.Event()
+    execution_result = {}
+    recovery_attempted = threading.Event()
+    recovery_done = threading.Event()
+    recovery_result = {}
+
+    def send(_args):
+        entered.set()
+        assert release.wait(timeout=5)
+        return "sent"
+
+    orchestrator.register_tool("send", StepPolicy("messaging"), send)
+    execution = threading.Thread(
+        target=lambda: execution_result.setdefault(
+            "result", orchestrator.execute_next(task.id)
+        )
+    )
+    execution.start()
+    assert entered.wait(timeout=2)
+
+    original_lock = task_manager_module.task_execution_lock
+
+    @contextmanager
+    def track_recovery_lock(lock_path, task_id):
+        if task_id == task.id:
+            recovery_attempted.set()
+        with original_lock(lock_path, task_id):
+            yield
+
+    monkeypatch.setattr(task_manager_module, "task_execution_lock", track_recovery_lock)
+
+    def recover():
+        recovery_result["recovered"] = TaskManager(path).recover_interrupted_tasks()
+        recovery_done.set()
+
+    recovery = threading.Thread(target=recover)
+    recovery.start()
+    try:
+        assert recovery_attempted.wait(timeout=2)
+        assert not recovery_done.wait(timeout=0.25)
+    finally:
+        release.set()
+
+    execution.join(timeout=5)
+    recovery.join(timeout=5)
+    assert not execution.is_alive()
+    assert not recovery.is_alive()
+    assert execution_result["result"]["status"] == "completed"
+    assert recovery_result["recovered"] == []
+    assert TaskManager(path).get(task.id).status == TaskStatus.COMPLETED
