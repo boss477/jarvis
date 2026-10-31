@@ -1,6 +1,7 @@
 """Optional Windows sign-in supervisor for the persistent agent host."""
 from __future__ import annotations
 
+import codecs
 import os
 from pathlib import Path
 import subprocess
@@ -91,17 +92,31 @@ def _append_log(log_path: Path, text: str) -> None:
                 # Rotation is best-effort on Windows, where another process
                 # may briefly hold a backup open. Keep the active log writable.
                 pass
+        # Remove unexpected numeric backups too, so stray .3/.4 files cannot
+        # defeat the configured total-size bound. Ignore non-numeric sidecars
+        # such as the persistent .mutex lock file.
+        for backup in log_path.parent.glob(f"{log_path.name}.*"):
+            suffix = backup.name[len(log_path.name) + 1:]
+            if suffix.isdigit() and int(suffix) > _LOG_BACKUP_COUNT:
+                try:
+                    backup.unlink(missing_ok=True)
+                except OSError:
+                    pass
         with log_path.open("ab") as handle:
             handle.write(record)
 
 def _stream_host_output(stream, log_path: Path) -> None:
-    """Drain child output with bounded reads and bounded records."""
+    """Drain child output using available chunks and bounded log records."""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     pending = ""
+    read_chunk = getattr(stream, "read1", None) or stream.read
     try:
         while True:
-            chunk = stream.read(_HOST_OUTPUT_READ_CHARS)
+            chunk = read_chunk(_HOST_OUTPUT_READ_CHARS)
             if not chunk:
                 break
+            if isinstance(chunk, bytes):
+                chunk = decoder.decode(chunk)
             pending += chunk
             while True:
                 newline = pending.find("\n")
@@ -116,6 +131,9 @@ def _stream_host_output(stream, log_path: Path) -> None:
                     _append_log(log_path, "host: " + part + " [continued]")
                     continue
                 break
+        # Flush any incomplete UTF-8 sequence at EOF with replacement, rather
+        # than losing buffered bytes from the final chunk.
+        pending += decoder.decode(b"", final=True)
         if pending:
             _append_log(log_path, "host: " + pending.rstrip("\r"))
     except (OSError, ValueError) as exc:
@@ -171,7 +189,6 @@ def run_supervisor(state_path: Path | None = None) -> None:
                 process = subprocess.Popen(
                     command, cwd=repository_root, stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, encoding="utf-8", errors="replace", bufsize=1,
                     creationflags=creation_flags,
                 )
                 output_stream = getattr(process, "stdout", None)
