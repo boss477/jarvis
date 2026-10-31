@@ -426,11 +426,16 @@ class InstagramAdapter(ChannelAdapter):
         messages = []
         for entry in payload.get("entry", []):
             for event in entry.get("messaging", []):
-                text = event.get("message", {}).get("text", "")
+                message = event.get("message") or {}
+                # Meta sends echoes of the account's own messages through the
+                # messaging webhook. They are outbound events, not user input.
+                if message.get("is_echo"):
+                    continue
+                text = message.get("text", "")
                 if text:
                     sender = str(event.get("sender", {}).get("id", ""))
                     messages.append(IncomingMessage("instagram", sender, text,
-                        str(event.get("message", {}).get("mid", "")), sender))
+                        str(message.get("mid", "")), sender))
         return messages
 
     def send_message(self, recipient: str, text: str) -> str:
