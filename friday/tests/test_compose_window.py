@@ -65,7 +65,7 @@ def test_refresh_setup_removes_deleted_dotenv_keys_and_preserves_external_values
 
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "JARVIS_REMOVED_KEY=from-dotenv\\nJARVIS_EXTERNAL_KEY=from-dotenv\\n",
+        "JARVIS_REMOVED_KEY=from-dotenv\nJARVIS_EXTERNAL_KEY=from-dotenv\n",
         encoding="utf-8",
     )
     for key in ("JARVIS_REMOVED_KEY", "JARVIS_EXTERNAL_KEY", "JARVIS_NEW_KEY"):
@@ -90,7 +90,7 @@ def test_refresh_setup_removes_deleted_dotenv_keys_and_preserves_external_values
     window.status = Value()
     monkeypatch.setattr(ComposeWindow, "_readiness_summary", staticmethod(lambda: "ready"))
     env_path.write_text(
-        "JARVIS_EXTERNAL_KEY=from-dotenv\\nJARVIS_NEW_KEY=new-value\\n",
+        "JARVIS_EXTERNAL_KEY=from-dotenv\nJARVIS_NEW_KEY=new-value\n",
         encoding="utf-8",
     )
 
