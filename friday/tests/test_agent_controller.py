@@ -200,6 +200,32 @@ def test_linkedin_post_success_supports_accurate_posted_claim(tmp_path):
 
     assert controller._claim_matches_completed_action(task, "I posted the LinkedIn update.")
 
+def test_posted_claim_requires_matching_successful_public_service(tmp_path):
+    tasks = TaskManager(tmp_path / "tasks.jsonl")
+    workers = WorkerRegistry(); workers.register("local", {"communication"}); workers.set_online("local")
+    orchestrator = TaskOrchestrator(tasks, workers, ConnectorRegistry())
+    orchestrator.register_tool("compose_send", StepPolicy("communication", requires_approval=True),
+                               lambda _args: "sent")
+    controller = TaskAgentController(tasks, orchestrator, lambda _: [])
+    task = tasks.create("publish announcement", [{
+        "tool": "compose_send",
+        "args": {"targets": [
+            {"channel": "x_public", "recipient": "public"},
+            {"channel": "linkedin_public", "recipient": "public"},
+        ], "text": "Launch announcement"},
+        "status": "completed",
+        "result": json.dumps({"kind": "channel_delivery", "results": [
+            {"channel": "x_public", "recipient": "public", "ok": True},
+            {"channel": "linkedin_public", "recipient": "public", "ok": False},
+        ]}),
+    }])
+
+    assert controller._claim_matches_completed_action(task, "I posted the X update.")
+    assert not controller._claim_matches_completed_action(task, "I posted the LinkedIn update.")
+    assert not controller._claim_matches_completed_action(task, "I posted on X and LinkedIn.")
+    assert not controller._claim_matches_completed_action(task, "I posted on Facebook.")
+
+
 @pytest.mark.parametrize(
     ("tool", "args", "expected_limit"),
     [
