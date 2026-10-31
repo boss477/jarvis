@@ -250,16 +250,16 @@ class TaskAgentController:
         if action == "posted":
             public_channels = {"x_public", "linkedin_public", "instagram_public"}
             channel_patterns = {
-                "x_public": r"\\b(?:x|twitter)\\b",
-                "linkedin_public": r"\\blinkedin\\b",
-                "instagram_public": r"\\binstagram\\b",
+                "x_public": r"\b(?:x|twitter)\b",
+                "linkedin_public": r"\blinkedin\b",
+                "instagram_public": r"\binstagram\b",
             }
             named_channels = {
                 channel for channel, pattern in channel_patterns.items()
                 if re.search(pattern, reply, re.I)
             }
             mentions_unsupported_service = re.search(
-                r"\\b(?:facebook|youtube|tiktok|threads|reddit|pinterest)\\b",
+                r"\b(?:facebook|youtube|tiktok|threads|reddit|pinterest)\b",
                 reply, re.I,
             )
             if mentions_unsupported_service and not named_channels:
