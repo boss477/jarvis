@@ -89,14 +89,32 @@ def _cleanup_task_execution_lock_sidecars(path: str | Path) -> None:
                 break
 
 
+_task_execution_lock_state = threading.local()
+
+
 @contextmanager
 def task_execution_lock(path: str | Path, task_id: str):
     """Exclude recovery from one task while its side effect is in flight.
 
     The registry lock protects only sidecar open/cleanup. A per-task lock stays
     held across execution, while unrelated tasks use distinct lock files and
-    can proceed concurrently. Idle sidecars are pruned to a bounded count.
+    can proceed concurrently. Re-entry by the same thread shares the outer
+    lock, allowing a controller to call the orchestrator without deadlocking.
+    Idle sidecars are pruned best-effort to a bounded count.
     """
+    key = (str(Path(path).resolve()), str(task_id))
+    held = getattr(_task_execution_lock_state, "held", None)
+    if held is None:
+        held = {}
+        _task_execution_lock_state.held = held
+    if key in held:
+        held[key] += 1
+        try:
+            yield
+        finally:
+            held[key] -= 1
+        return
+
     execution_path = _task_execution_lock_path(path, task_id)
     registry_path = _task_execution_registry_path(path)
     while True:
@@ -106,13 +124,20 @@ def task_execution_lock(path: str | Path, task_id: str):
             break
         time.sleep(0.05)
 
+    held[key] = 1
     try:
         yield
     finally:
+        held.pop(key, None)
         try:
             _release_try_jsonl_file_lock(acquired)
         finally:
-            _cleanup_task_execution_lock_sidecars(path)
+            try:
+                _cleanup_task_execution_lock_sidecars(path)
+            except (OSError, TimeoutError):
+                # Pruning is maintenance only; it must not turn a completed
+                # side effect into a failed task or mask the task's exception.
+                pass
 
 class TaskStatus(str, Enum):
     QUEUED = "queued"
