@@ -227,6 +227,31 @@ def test_posted_claim_requires_matching_successful_public_service(tmp_path):
     assert not controller._claim_matches_completed_action(task, "I posted on Facebook.")
 
 
+def test_posted_claim_scopes_platforms_to_the_claim_clause_and_rejects_unknown_services(tmp_path):
+    tasks = TaskManager(tmp_path / "tasks.jsonl")
+    workers = WorkerRegistry(); workers.register("local", {"communication"}); workers.set_online("local")
+    orchestrator = TaskOrchestrator(tasks, workers, ConnectorRegistry())
+    orchestrator.register_tool("compose_send", StepPolicy("communication", requires_approval=True),
+                               lambda _args: "sent")
+    controller = TaskAgentController(tasks, orchestrator, lambda _: [])
+    task = tasks.create("publish announcement", [{
+        "tool": "compose_send",
+        "args": {"targets": [{"channel": "linkedin_public", "recipient": "public"}],
+                 "text": "Launch announcement"},
+        "status": "completed",
+        "result": json.dumps({"kind": "channel_delivery", "results": [{
+            "channel": "linkedin_public", "recipient": "public", "ok": True,
+        }]}),
+    }])
+
+    assert controller._claim_matches_completed_action(
+        task, "I posted it to LinkedIn. Want me to also post it on X?"
+    )
+    assert not controller._claim_matches_completed_action(
+        task, "I posted the announcement to Bluesky."
+    )
+
+
 @pytest.mark.parametrize(
     ("tool", "args", "expected_limit"),
     [
