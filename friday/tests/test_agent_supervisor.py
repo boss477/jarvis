@@ -27,6 +27,39 @@ def test_request_stop_only_signals_an_active_supervisor(tmp_path):
         lock.close()
 
 
+def test_request_stop_clears_stale_marker_before_releasing_lock(tmp_path, monkeypatch):
+    state_path = tmp_path / "tasks.jsonl"
+    stop_path = Path(f"{state_path}.supervisor.stop")
+    stop_path.write_text("stale", encoding="ascii")
+
+    class FakeLock:
+        held = False
+
+        def __init__(self, *_args, **_kwargs):
+            if FakeLock.held:
+                raise RuntimeError("lock is already held")
+            FakeLock.held = True
+
+        def close(self):
+            FakeLock.held = False
+
+    original_unlink = Path.unlink
+    observed_lock_state = []
+
+    def checking_unlink(path, *args, **kwargs):
+        if path == stop_path:
+            observed_lock_state.append(FakeLock.held)
+        return original_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(agent_supervisor, "AgentHostLock", FakeLock)
+    monkeypatch.setattr(Path, "unlink", checking_unlink)
+
+    assert not request_stop(state_path)
+    assert observed_lock_state == [True]
+    assert not stop_path.exists()
+    assert not FakeLock.held
+
+
 def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monkeypatch):
     state_path = tmp_path / "tasks.jsonl"
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
