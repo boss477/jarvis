@@ -23,6 +23,21 @@ def _parse_bool(value: Any) -> bool:
     return False
 
 
+def _agent_file_path(raw: str | None) -> Path:
+    configured_roots = [item.strip() for item in
+                        os.getenv("AGENT_FILE_ROOTS", "").split(os.pathsep)
+                        if item.strip()]
+    roots = ([Path(item).expanduser().resolve() for item in configured_roots]
+             if configured_roots else [Path.home().resolve()])
+    # With an explicit allowlist, default searches should start inside it
+    # rather than defaulting to a home directory that may be outside the roots.
+    target = Path(raw).expanduser() if raw else roots[0]
+    target = target.resolve()
+    if not any(target == root or root in target.parents for root in roots):
+        raise ValueError("path is outside the configured agent file roots")
+    return target
+
+
 def register_agent_tools(orchestrator: TaskOrchestrator, hub: CommunicationHub,
                          workers: WorkerRegistry, memory: MemoryStore) -> None:
     capabilities = {
@@ -94,24 +109,12 @@ def register_agent_tools(orchestrator: TaskOrchestrator, hub: CommunicationHub,
             str(args["query"]), scope=str(args.get("_memory_scope", "owner")))) \
             or "No saved memory found."
 
-    def agent_file_path(raw: str | None) -> Path:
-        target = Path(raw).expanduser() if raw else Path.home()
-        target = target.resolve()
-        configured_roots = [item.strip() for item in
-                            os.getenv("AGENT_FILE_ROOTS", "").split(os.pathsep)
-                            if item.strip()]
-        roots = ([Path(item).expanduser().resolve() for item in configured_roots]
-                 if configured_roots else [Path.home().resolve()])
-        if not any(target == root or root in target.parents for root in roots):
-            raise ValueError("path is outside the configured agent file roots")
-        return target
-
     def search_agent_files(args):
-        directory = agent_file_path(args.get("directory"))
+        directory = _agent_file_path(args.get("directory"))
         return files.search_files(str(args["query"]), str(directory))
 
     def open_agent_path(args):
-        path = agent_file_path(str(args["path"]))
+        path = _agent_file_path(str(args["path"]))
         return files.open_path(str(path))
 
     orchestrator.register_tool("send", StepPolicy("communication", requires_approval=True), send)
