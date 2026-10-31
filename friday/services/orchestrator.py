@@ -24,6 +24,8 @@ class TaskOrchestrator:
         self.handlers: dict[str, Callable[[dict[str, Any]], Any]] = {}
         self._task_locks: dict[str, threading.Lock] = {}
         self._task_locks_guard = threading.Lock()
+        # Do not replay a side effect after its durable checkpoint fails.
+        self._checkpoint_failures: dict[str, str] = {}
 
     def register_tool(self, tool: str, policy: StepPolicy, handler: Callable[[dict[str, Any]], Any]):
         self.policies[tool] = policy; self.handlers[tool] = handler
@@ -35,6 +37,9 @@ class TaskOrchestrator:
             return self._execute_next_locked(task_id)
 
     def _execute_next_locked(self, task_id: str) -> dict[str, Any]:
+        if task_id in self._checkpoint_failures:
+            return {"ok": False, "status": "checkpoint_failed",
+                    "error": self._checkpoint_failures[task_id]}
         task = self.tasks.get(task_id)
         if task is None: raise KeyError(task_id)
         if task.status == TaskStatus.COMPLETED:
@@ -64,8 +69,22 @@ class TaskOrchestrator:
                     "status": current.status.value if current else TaskStatus.FAILED.value}
         try:
             result = self.handlers[step.tool](step.args)
-            self.tasks.checkpoint(task_id, success=True, result=str(result))
-            return {"ok": True, "status": self.tasks.get(task_id).status.value, "result": str(result)}
         except Exception as exc:
-            self.tasks.checkpoint(task_id, success=False, error=str(exc))
+            try:
+                self.tasks.checkpoint(task_id, success=False, error=str(exc))
+            except Exception as checkpoint_exc:
+                error = (
+                    f"handler error: {type(exc).__name__}; failure checkpoint error: "
+                    f"{type(checkpoint_exc).__name__}: {checkpoint_exc}"
+                )
+                self._checkpoint_failures[task_id] = error
+                return {"ok": False, "status": "checkpoint_failed", "error": error}
             return {"ok": False, "status": "failed", "error": str(exc)}
+
+        try:
+            completed = self.tasks.checkpoint(task_id, success=True, result=str(result))
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            self._checkpoint_failures[task_id] = error
+            return {"ok": False, "status": "checkpoint_failed", "error": error}
+        return {"ok": True, "status": completed.status.value, "result": str(result)}
