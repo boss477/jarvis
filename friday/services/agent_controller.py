@@ -145,6 +145,12 @@ class TaskAgentController:
                     self.tasks.checkpoint(task_id, success=False, error=str(exc))
                 result = {"status": TaskStatus.FAILED.value, "error": str(exc)}
         status = result.get("status")
+        if status == "checkpoint_failed":
+            return (
+                f"Task {task_id}: an action may have run, but its result could not be saved "
+                f"({result.get('error', 'checkpoint failed')}). "
+                "Verify the destination before retrying."
+            )
         if status == TaskStatus.WAITING_APPROVAL.value:
             task = self.tasks.get(task_id)
             step = task.steps[task.current_step] if task and task.current_step < len(task.steps) else None
