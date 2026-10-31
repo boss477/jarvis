@@ -305,3 +305,39 @@ def test_recovery_pauses_unclaimed_step_and_allows_resume(tmp_path):
 
     assert restarted.resume(task.id).status == TaskStatus.RUNNING
     assert restarted.claim_step(task.id, 0)
+
+
+
+@pytest.mark.parametrize(
+    ("interrupted_status", "expected_status"),
+    [
+        (TaskStatus.PAUSED, TaskStatus.FAILED),
+        (TaskStatus.CANCELLED, TaskStatus.CANCELLED),
+    ],
+)
+def test_recovery_quarantines_in_flight_steps_after_pause_or_cancel(
+    tmp_path, interrupted_status, expected_status
+):
+    path = tmp_path / f"tasks-{interrupted_status.value}.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("send a message", [{"tool": "send", "approved": True}])
+    manager.start(task.id)
+    assert manager.claim_step(task.id, 0)
+
+    if interrupted_status == TaskStatus.PAUSED:
+        manager.pause(task.id)
+    else:
+        manager.cancel(task.id)
+
+    restarted = TaskManager(path)
+    assert restarted.recover_interrupted_tasks() == [task.id]
+    recovered = restarted.get(task.id)
+    assert recovered.status == expected_status
+    assert recovered.steps[0].status == "interrupted"
+    assert not recovered.steps[0].approved
+    assert "outcome is uncertain" in recovered.steps[0].error
+    assert restarted.summary(task.id)["recovery_required"] is True
+    assert restarted.recover_interrupted_tasks() == []
+
+    with pytest.raises(ValueError, match="not paused or queued"):
+        restarted.resume(task.id)

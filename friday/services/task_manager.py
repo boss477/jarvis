@@ -176,30 +176,47 @@ class TaskManager:
             }
 
     def recover_interrupted_tasks(self) -> list[str]:
-        """Recover tasks left RUNNING without replaying claimed side effects.
+        """Recover tasks left with an in-flight step after a process interruption.
 
-        A pending step was never claimed and is safe to resume. A claimed step may
-        have reached an external provider, so it is quarantined as interrupted.
+        A pending step on a RUNNING task was never claimed and is safe to resume.
+        A claimed step may have reached an external provider, so it is quarantined
+        as interrupted. This also covers a crash after pause/cancel while the step
+        was still running; cancelled tasks keep their terminal status.
         """
         recovered = []
         uncertain = ("The host stopped while this step was executing; the external "
                      "outcome is uncertain. Verify the destination before creating a retry.")
         with self._locked_state():
             for task in self._tasks.values():
-                if task.status != TaskStatus.RUNNING:
-                    continue
-                if task.current_step >= len(task.steps):
-                    task.status = TaskStatus.COMPLETED
-                else:
-                    step = task.steps[task.current_step]
-                    if step.status == "pending":
-                        # The durable claim never happened, so no side effect started.
-                        task.status = TaskStatus.PAUSED
+                if task.status == TaskStatus.RUNNING:
+                    if task.current_step >= len(task.steps):
+                        task.status = TaskStatus.COMPLETED
                     else:
-                        step.status = "interrupted"
-                        step.error = uncertain
-                        step.approved = False
+                        step = task.steps[task.current_step]
+                        if step.status == "pending":
+                            # The durable claim never happened, so no side effect started.
+                            task.status = TaskStatus.PAUSED
+                        else:
+                            step.status = "interrupted"
+                            step.error = uncertain
+                            step.approved = False
+                            task.status = TaskStatus.FAILED
+                elif task.status in {TaskStatus.PAUSED, TaskStatus.CANCELLED}:
+                    if task.current_step >= len(task.steps):
+                        continue
+                    step = task.steps[task.current_step]
+                    if step.status != "running":
+                        continue
+                    # Pause/cancel may race with an external call. Never make a
+                    # possibly completed side effect runnable again after restart.
+                    step.status = "interrupted"
+                    step.error = uncertain
+                    step.approved = False
+                    if task.status == TaskStatus.PAUSED:
                         task.status = TaskStatus.FAILED
+                    # Preserve CANCELLED as a terminal task state.
+                else:
+                    continue
                 task.approval_reason = ""
                 self._persist(task)
                 recovered.append(task.id)
