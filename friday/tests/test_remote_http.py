@@ -495,3 +495,53 @@ def test_whatsapp_batch_delivers_completed_message_before_retrying_later_failure
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_whatsapp_subscription_rejects_non_ascii_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHATSAPP_VERIFY_TOKEN", "verify-secret")
+    manager = TaskManager(tmp_path / "tasks.jsonl")
+    server = create_webhook_server(RemoteGateway(TaskCommandService(manager)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/whatsapp"
+            "?hub.mode=subscribe&hub.verify_token=caf%C3%A9&hub.challenge=do-not-echo"
+        )
+        try:
+            urlopen(request, timeout=2)
+            assert False, "non-matching verification token must be rejected"
+        except HTTPError as exc:
+            assert exc.code == 403
+            assert b"do-not-echo" not in exc.read()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_webhook_rejects_non_ascii_bearer_header_without_dropping_connection(
+    tmp_path, monkeypatch
+):
+    for name in ("META_APP_SECRET", "SLACK_SIGNING_SECRET", "TELEGRAM_WEBHOOK_SECRET"):
+        monkeypatch.delenv(name, raising=False)
+    manager = TaskManager(tmp_path / "tasks.jsonl")
+    server = create_webhook_server(RemoteGateway(TaskCommandService(manager)), token="secret")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=2)
+    try:
+        connection.request(
+            "POST", "/telegram", body=b"{}",
+            headers={
+                "Authorization": "Bearer café",
+                "Content-Type": "application/json",
+                "Content-Length": "2",
+            },
+        )
+        response = connection.getresponse()
+        assert response.status == 401
+        response.read()
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()
