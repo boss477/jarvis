@@ -86,3 +86,19 @@ def test_supervisor_does_not_spawn_a_second_host_for_the_same_store(tmp_path, mo
     assert "Another agent host owns this task store" in (
         tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log"
     ).read_text()
+
+def test_supervisor_log_rotates_and_bounds_total_size(tmp_path, monkeypatch):
+    log_path = tmp_path / "agent-supervisor.log"
+    monkeypatch.setattr(agent_supervisor, "_MAX_LOG_BYTES", 256)
+    monkeypatch.setattr(agent_supervisor, "_MAX_LOG_MESSAGE_BYTES", 64)
+    monkeypatch.setattr(agent_supervisor, "_LOG_BACKUP_COUNT", 2)
+
+    for index in range(20):
+        agent_supervisor._append_log(log_path, f"record-{index}-" + "x" * 1000)
+
+    files = [log_path, *sorted(log_path.parent.glob("agent-supervisor.log.*"))]
+    assert len(files) <= 3
+    assert all(path.stat().st_size <= 256 for path in files)
+    assert sum(path.stat().st_size for path in files) <= 3 * 256
+    assert "[truncated]" in log_path.read_text(encoding="utf-8")
+
