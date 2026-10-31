@@ -63,7 +63,7 @@ def _append_log(log_path: Path, text: str) -> None:
     if len(encoded_message) > max_message_bytes:
         message = encoded_message[:max_message_bytes].decode("utf-8", errors="ignore")
         message += " [truncated]"
-    record = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\\n".encode("utf-8")
+    record = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n".encode("utf-8")
 
     with _LOG_LOCK:
         try:
@@ -89,7 +89,7 @@ def _stream_host_output(stream, log_path: Path) -> None:
     """Drain child output into the bounded supervisor log without blocking stop checks."""
     try:
         for line in stream:
-            _append_log(log_path, "host: " + line.rstrip("\\r\\n"))
+            _append_log(log_path, "host: " + line.rstrip("\r\n"))
     except (OSError, ValueError) as exc:
         _append_log(log_path, f"Could not read agent host output ({type(exc).__name__}).")
     finally:
