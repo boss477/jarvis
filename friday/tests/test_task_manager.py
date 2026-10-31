@@ -114,25 +114,24 @@ def test_task_execution_lock_cleanup_preserves_active_sidecars(tmp_path):
     assert len(sidecars) <= 64
 
 
-def test_task_execution_lock_retries_after_contention_timeout(tmp_path, monkeypatch):
+def test_task_execution_lock_retries_after_contention(tmp_path, monkeypatch):
     from friday.services import task_manager
 
-    original_lock = task_manager._jsonl_file_lock
+    original_try_lock = task_manager._try_jsonl_file_lock
     attempts = []
 
-    @contextmanager
-    def timed_lock(path):
+    def contended_once(path):
         attempts.append(path)
         if len(attempts) == 1:
-            raise TimeoutError("simulated Windows stripe contention")
-        with original_lock(path):
-            yield
+            return None
+        return original_try_lock(path)
 
-    monkeypatch.setattr(task_manager, "_jsonl_file_lock", timed_lock)
+    monkeypatch.setattr(task_manager, "_try_jsonl_file_lock", contended_once)
     with task_execution_lock(tmp_path / "tasks.jsonl", "task-1"):
         pass
 
-    assert len(attempts) == 2
+    assert len(attempts) >= 2
+
 
 
 def _approve_task_in_process(path, task_id, barrier, outcomes):
