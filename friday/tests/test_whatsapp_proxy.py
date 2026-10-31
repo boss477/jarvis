@@ -8,6 +8,8 @@ from friday.services.whatsapp_proxy import create_whatsapp_proxy_server
 
 
 class EchoWebhookHandler(BaseHTTPRequestHandler):
+    last_post_headers = {}
+
     def do_GET(self):
         body = self.path.encode()
         self.send_response(200)
@@ -17,6 +19,7 @@ class EchoWebhookHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        type(self).last_post_headers = {name.lower(): value for name, value in self.headers.items()}
         body = self.rfile.read(int(self.headers["Content-Length"]))
         self.send_response(202)
         self.send_header("Content-Type", "application/json")
@@ -28,9 +31,9 @@ class EchoWebhookHandler(BaseHTTPRequestHandler):
         pass
 
 
-def test_whatsapp_proxy_forwards_verification_and_signature_headers_only():
+def test_whatsapp_proxy_forwards_only_allowed_webhook_headers():
     upstream = ThreadingHTTPServer(("127.0.0.1", 0), EchoWebhookHandler)
-    proxy = create_whatsapp_proxy_server(upstream_port=upstream.server_port)
+    proxy = create_whatsapp_proxy_server(port=0, upstream_port=upstream.server_port)
     threads = [threading.Thread(target=server.serve_forever, daemon=True)
                for server in (upstream, proxy)]
     for thread in threads:
@@ -46,10 +49,16 @@ def test_whatsapp_proxy_forwards_verification_and_signature_headers_only():
         connection = http.client.HTTPConnection("127.0.0.1", proxy.server_port, timeout=2)
         connection.request("POST", "/whatsapp", body=b'{"test":true}', headers={
             "Content-Type": "application/json", "X-Hub-Signature-256": "sha256=test",
+            "Authorization": "Bearer test-token", "X-Not-Forwarded": "private",
         })
         response = connection.getresponse()
         assert response.status == 202
         assert response.read() == b'{"test":true}'
+        forwarded = EchoWebhookHandler.last_post_headers
+        assert forwarded["content-type"] == "application/json"
+        assert forwarded["x-hub-signature-256"] == "sha256=test"
+        assert forwarded["authorization"] == "Bearer test-token"
+        assert "x-not-forwarded" not in forwarded
         connection.close()
     finally:
         for server in (proxy, upstream):
@@ -58,7 +67,7 @@ def test_whatsapp_proxy_forwards_verification_and_signature_headers_only():
 
 
 def test_whatsapp_proxy_never_exposes_health_or_other_paths():
-    proxy = create_whatsapp_proxy_server(upstream_port=1)
+    proxy = create_whatsapp_proxy_server(port=0, upstream_port=1)
     thread = threading.Thread(target=proxy.serve_forever, daemon=True)
     thread.start()
     try:
