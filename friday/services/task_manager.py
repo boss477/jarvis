@@ -8,48 +8,111 @@ from __future__ import annotations
 from contextlib import contextmanager
 import hashlib
 import threading
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from .jsonl_store import _jsonl_file_lock, append_jsonl_record, read_jsonl_records
+from .jsonl_store import (
+    _forget_try_jsonl_thread_lock,
+    _jsonl_file_lock,
+    _release_try_jsonl_file_lock,
+    _try_jsonl_file_lock,
+    append_jsonl_record,
+    read_jsonl_records,
+)
 
 
-_EXECUTION_LOCK_STRIPES = 64
+_MAX_EXECUTION_LOCK_SIDECARS = 63  # plus one shared registry sidecar
 
 
 def _task_execution_lock_path(path: str | Path, task_id: str) -> Path:
-    """Map task IDs to a fixed set of lock files so sidecars remain bounded."""
-    digest = hashlib.sha256(str(task_id).encode("utf-8")).digest()
-    stripe = int.from_bytes(digest[:4], "big") % _EXECUTION_LOCK_STRIPES
-    return Path(f"{Path(path)}.execution.{stripe:02d}")
+    """Give each task a distinct, path-safe cross-process lock file."""
+    digest = hashlib.sha256(str(task_id).encode("utf-8")).hexdigest()
+    return Path(f"{Path(path).resolve()}.execution.{digest}")
+
+
+def _task_execution_registry_path(path: str | Path) -> Path:
+    """Serialize lock-file opening against cleanup without serializing task work."""
+    return Path(f"{Path(path).resolve()}.execution.registry")
+
+
+def _cleanup_task_execution_lock_sidecars(path: str | Path) -> None:
+    """Prune idle per-task lock files while preventing open/unlink races.
+
+    Every lock acquisition opens its task sidecar under the registry lock and
+    uses a non-blocking OS lock. Cleanup holds that same registry lock, skips
+    active sidecars, and removes only unlocked files, so waiters never retain
+    handles to an inode that is being unlinked.
+    """
+    target = Path(path).resolve()
+    registry_path = _task_execution_registry_path(target)
+    prefix = f"{target.name}.execution."
+    registry_sidecar = f"{target.name}.execution.registry.mutex"
+    with _jsonl_file_lock(registry_path):
+        sidecars = []
+        for sidecar in target.parent.glob(f"{prefix}*.mutex"):
+            if sidecar.name == registry_sidecar:
+                continue
+            suffix = sidecar.name[len(prefix):-len(".mutex")]
+            if len(suffix) == 64 and all(char in "0123456789abcdef" for char in suffix):
+                sidecars.append(sidecar)
+
+        excess = len(sidecars) - _MAX_EXECUTION_LOCK_SIDECARS
+        if excess <= 0:
+            return
+
+        def modified_ns(candidate: Path) -> int:
+            try:
+                return candidate.stat().st_mtime_ns
+            except OSError:
+                return 0
+
+        for sidecar in sorted(sidecars, key=modified_ns):
+            lock_target = Path(str(sidecar)[:-len(".mutex")])
+            acquired = _try_jsonl_file_lock(lock_target)
+            if acquired is None:
+                continue
+            try:
+                _release_try_jsonl_file_lock(acquired)
+            except OSError:
+                continue
+            try:
+                sidecar.unlink(missing_ok=True)
+            except OSError:
+                continue
+            _forget_try_jsonl_thread_lock(lock_target)
+            excess -= 1
+            if excess <= 0:
+                break
 
 
 @contextmanager
 def task_execution_lock(path: str | Path, task_id: str):
-    """Exclude recovery of one task while another process is executing it.
+    """Exclude recovery from one task while its side effect is in flight.
 
-    A fixed set of lock stripes bounds persistent sidecars. Unrelated tasks can
-    collide on a stripe, so retry a timed-out Windows lock acquisition instead
-    of failing an already-approved task after the JSONL lock's 60-second limit.
-    The lock is separate from the JSONL state lock and may span provider effects.
+    The registry lock protects only sidecar open/cleanup. A per-task lock stays
+    held across execution, while unrelated tasks use distinct lock files and
+    can proceed concurrently. Idle sidecars are pruned to a bounded count.
     """
     execution_path = _task_execution_lock_path(path, task_id)
+    registry_path = _task_execution_registry_path(path)
     while True:
-        lock = _jsonl_file_lock(execution_path)
-        try:
-            lock.__enter__()
-        except TimeoutError:
-            # _jsonl_file_lock has already waited for its bounded interval.
-            # Retrying avoids surfacing stripe contention as task failure.
-            continue
-        break
+        with _jsonl_file_lock(registry_path):
+            acquired = _try_jsonl_file_lock(execution_path)
+        if acquired is not None:
+            break
+        time.sleep(0.05)
+
     try:
         yield
     finally:
-        lock.__exit__(None, None, None)
+        try:
+            _release_try_jsonl_file_lock(acquired)
+        finally:
+            _cleanup_task_execution_lock_sidecars(path)
 
 class TaskStatus(str, Enum):
     QUEUED = "queued"
