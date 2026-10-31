@@ -119,8 +119,10 @@ def create_whatsapp_proxy_server(*, host: str = "127.0.0.1", port: int = 8769,
                                 upstream_port: int = 8767) -> ThreadingHTTPServer:
     host = _loopback_host(host, "WHATSAPP_PROXY_HOST")
     upstream_host = _loopback_host(upstream_host, "AGENT_WEBHOOK_HOST")
-    if not 1 <= int(port) <= 65535:
-        raise ValueError("WHATSAPP_PROXY_PORT must be between 1 and 65535")
+    # Port 0 asks the OS for an ephemeral port (useful for isolated tests).
+    # The CLI still rejects 0 in _port(), so configured production ports stay explicit.
+    if not 0 <= int(port) <= 65535:
+        raise ValueError("WHATSAPP_PROXY_PORT must be between 0 and 65535")
     if not 1 <= int(upstream_port) <= 65535:
         raise ValueError("AGENT_WEBHOOK_PORT must be between 1 and 65535")
     handler = type("ConfiguredWhatsAppProxyHandler", (WhatsAppProxyHandler,), {
