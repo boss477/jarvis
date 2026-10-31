@@ -319,8 +319,13 @@ class ComposeWindow:
             else:
                 os.environ[key] = value
         self._dotenv_keys = current_keys
-        self.readiness.set(self._readiness_summary())
-        self.status.set("Setup status refreshed. Restart the persistent agent after changing webhook settings.")
+        self.readiness.set(
+            f"Saved configuration (restart composer to apply): {self._readiness_summary()}"
+        )
+        self.status.set(
+            "Configuration refreshed. Close and reopen the composer to rebuild channel adapters; "
+            "restart the persistent agent too if webhook settings changed."
+        )
 
     @staticmethod
     def _readiness_summary():
