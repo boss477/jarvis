@@ -145,3 +145,43 @@ def test_cancel_before_durable_step_claim_prevents_side_effect(tmp_path, monkeyp
     assert result["status"] == "cancelled"
     assert calls == []
     assert tasks.get(task.id).steps[0].status == "pending"
+
+
+def test_checkpoint_failure_does_not_reclassify_successful_side_effect(tmp_path, monkeypatch):
+    tasks = TaskManager(tmp_path / "tasks.jsonl")
+    workers = WorkerRegistry()
+    workers.register("sender", {"messaging"})
+    workers.set_online("sender")
+    task = tasks.create("send", [{"tool": "send"}])
+    tasks.start(task.id)
+    orchestrator = TaskOrchestrator(tasks, workers)
+    sent = []
+    orchestrator.register_tool(
+        "send", StepPolicy("messaging"), lambda _args: sent.append("sent") or "sent"
+    )
+
+    original_persist = tasks._persist
+
+    def fail_completed_checkpoint(saved_task):
+        if saved_task.status == TaskStatus.COMPLETED:
+            raise OSError("disk full")
+        return original_persist(saved_task)
+
+    checkpoint_results = []
+    original_checkpoint = tasks.checkpoint
+
+    def track_checkpoint(task_id, *, success, result="", error=""):
+        checkpoint_results.append(success)
+        return original_checkpoint(task_id, success=success, result=result, error=error)
+
+    monkeypatch.setattr(tasks, "_persist", fail_completed_checkpoint)
+    monkeypatch.setattr(tasks, "checkpoint", track_checkpoint)
+
+    result = orchestrator.execute_next(task.id)
+    repeated = orchestrator.execute_next(task.id)
+
+    assert result["status"] == "checkpoint_failed"
+    assert repeated["status"] == "checkpoint_failed"
+    assert "disk full" in result["error"]
+    assert sent == ["sent"]
+    assert checkpoint_results == [True]
