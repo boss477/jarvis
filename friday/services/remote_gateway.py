@@ -161,7 +161,11 @@ class RemoteGateway:
                 return result
             result = {"ok": True, "task": task}
             return result
-        except (KeyError, ValueError) as exc: return {"ok": False, "reply": str(exc)}
+        except KeyError as exc:
+            message = exc.args[0] if exc.args else "Unknown task"
+            return {"ok": False, "reply": str(message)}
+        except ValueError as exc:
+            return {"ok": False, "reply": str(exc)}
 
     def _attach_approval_buttons(self, result: dict, message: IncomingMessage,
                                  task_id: str, *, require_matching_prompt: bool = False) -> None:

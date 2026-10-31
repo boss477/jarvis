@@ -6,7 +6,7 @@ import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from friday.services.remote_http import MAX_WEBHOOK_BODY_BYTES, create_webhook_server
-from friday.services.remote_gateway import RemoteGateway
+from friday.services.remote_gateway import IncomingMessage, RemoteGateway
 from friday.services.task_commands import TaskCommandService
 from friday.services.task_manager import TaskManager
 from friday.services.action_agent import PersistentActionAgent
@@ -545,3 +545,21 @@ def test_webhook_rejects_non_ascii_bearer_header_without_dropping_connection(
         connection.close()
         server.shutdown()
         server.server_close()
+
+
+
+def test_unknown_task_command_reply_does_not_quote_key_error(tmp_path):
+    manager = TaskManager(tmp_path / "tasks.jsonl")
+    gateway = RemoteGateway(TaskCommandService(manager))
+
+    result = gateway.route_command(IncomingMessage(
+        channel="whatsapp",
+        sender_id="user-1",
+        conversation_id="chat-1",
+        text="/check 000000000000",
+    ))
+
+    assert result == {
+        "ok": False,
+        "reply": "unknown task: 000000000000",
+    }
