@@ -17,16 +17,15 @@ from .jsonl_store import _jsonl_file_lock, append_jsonl_record, read_jsonl_recor
 
 
 @contextmanager
-def task_execution_lock(path: str | Path):
-    """Exclude startup recovery while another process executes a task.
+def task_execution_lock(path: str | Path, task_id: str):
+    """Exclude recovery of one task while another process is executing it.
 
-    This lock is separate from the JSONL state lock: it can be held across
-    provider side effects without blocking task-state reads and checkpoints.
+    Use a per-task lock so unrelated tasks can continue concurrently. The lock
+    is separate from the JSONL state lock and may span provider side effects.
     """
-    execution_path = Path(f"{Path(path)}.execution")
+    execution_path = Path(f"{Path(path)}.execution.{task_id}")
     with _jsonl_file_lock(execution_path):
         yield
-
 
 class TaskStatus(str, Enum):
     QUEUED = "queued"
@@ -190,17 +189,22 @@ class TaskManager:
     def recover_interrupted_tasks(self) -> list[str]:
         """Recover tasks left with an in-flight step after a process interruption.
 
-        A pending step on a RUNNING task was never claimed and is safe to resume.
-        A claimed step may have reached an external provider, so it is quarantined
-        as interrupted. This also covers a crash after pause/cancel while the step
-        was still running; cancelled tasks keep their terminal status.
+        Each task's execution lock is acquired before refreshing and changing
+        its state. This waits for live work on that task without blocking
+        unrelated tasks or holding the JSONL lock while waiting.
         """
         recovered = []
         uncertain = ("The host stopped while this step was executing; the external "
                      "outcome is uncertain. Verify the destination before creating a retry.")
-        with task_execution_lock(self.path):
-            with self._locked_state():
-                for task in self._tasks.values():
+        with self._locked_state():
+            task_ids = list(self._tasks)
+
+        for task_id in task_ids:
+            with task_execution_lock(self.path, task_id):
+                with self._locked_state():
+                    task = self._tasks.get(task_id)
+                    if task is None:
+                        continue
                     if task.status == TaskStatus.RUNNING:
                         if task.current_step >= len(task.steps):
                             task.status = TaskStatus.COMPLETED
