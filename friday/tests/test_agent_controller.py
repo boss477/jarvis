@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from friday.services.agent_controller import TaskAgentController
 from friday.services.communication_hub import CommunicationMessage
 from friday.services.connectors import ConnectorRegistry
@@ -197,3 +199,31 @@ def test_linkedin_post_success_supports_accurate_posted_claim(tmp_path):
     }])
 
     assert controller._claim_matches_completed_action(task, "I posted the LinkedIn update.")
+
+@pytest.mark.parametrize(
+    ("tool", "args", "expected_limit"),
+    [
+        ("send", {"channel": "whatsapp", "recipient": "15551234567",
+                  "text": "x" * 1601}, "1,600"),
+        ("send", {"channel": "voice", "recipient": "15551234567",
+                  "text": "x" * 1201}, "1,200"),
+        ("compose_send", {"targets": [{"channel": "whatsapp", "recipient": "15551234567"}],
+                          "text": "x" * 1601}, "1,600"),
+        ("x_post", {"text": "x" * 1601}, "1,600"),
+    ],
+)
+def test_oversized_approval_text_is_rejected_before_task_creation(
+    tmp_path, tool, args, expected_limit
+):
+    tasks = TaskManager(tmp_path / "tasks.jsonl")
+    orchestrator = TaskOrchestrator(tasks, WorkerRegistry(), ConnectorRegistry())
+    controller = TaskAgentController(
+        tasks, orchestrator, lambda _prompt: [{"tool": tool, "args": args}]
+    )
+
+    reply = controller.handle(CommunicationMessage("whatsapp", "c1", "u1", "send this"))
+
+    assert f"{expected_limit} characters" in reply
+    assert "Please shorten it and try again" in reply
+    assert tasks.list() == []
+
