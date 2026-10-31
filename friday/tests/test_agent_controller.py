@@ -261,6 +261,8 @@ def test_posted_claim_scopes_platforms_to_the_claim_clause_and_rejects_unknown_s
                   "text": "x" * 1201}, "1,200"),
         ("compose_send", {"targets": [{"channel": "whatsapp", "recipient": "15551234567"}],
                           "text": "x" * 1601}, "1,600"),
+        ("compose_send", {"targets": [{"channel": "voice", "recipient": "15551234567"}],
+                          "text": "x" * 1201}, "1,200"),
         ("x_post", {"text": "x" * 281}, "280"),
         ("send", {"channel": "x_public", "recipient": "public",
                   "text": "x" * 281}, "280"),
