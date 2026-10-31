@@ -31,13 +31,25 @@ def _task_execution_lock_path(path: str | Path, task_id: str) -> Path:
 def task_execution_lock(path: str | Path, task_id: str):
     """Exclude recovery of one task while another process is executing it.
 
-    A fixed set of lock stripes bounds persistent sidecars while allowing most
-    unrelated tasks to execute concurrently. The lock is separate from the
-    JSONL state lock and may span provider side effects.
+    A fixed set of lock stripes bounds persistent sidecars. Unrelated tasks can
+    collide on a stripe, so retry a timed-out Windows lock acquisition instead
+    of failing an already-approved task after the JSONL lock's 60-second limit.
+    The lock is separate from the JSONL state lock and may span provider effects.
     """
     execution_path = _task_execution_lock_path(path, task_id)
-    with _jsonl_file_lock(execution_path):
+    while True:
+        lock = _jsonl_file_lock(execution_path)
+        try:
+            lock.__enter__()
+        except TimeoutError:
+            # _jsonl_file_lock has already waited for its bounded interval.
+            # Retrying avoids surfacing stripe contention as task failure.
+            continue
+        break
+    try:
         yield
+    finally:
+        lock.__exit__(None, None, None)
 
 class TaskStatus(str, Enum):
     QUEUED = "queued"
