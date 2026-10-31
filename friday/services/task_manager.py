@@ -168,10 +168,10 @@ class TaskManager:
             }
 
     def recover_interrupted_tasks(self) -> list[str]:
-        """Quarantine tasks left RUNNING by a previous host process.
+        """Recover tasks left RUNNING without replaying claimed side effects.
 
-        The step may have reached an external provider before the process died,
-        so recovery never retries it automatically.
+        A pending step was never claimed and is safe to resume. A claimed step may
+        have reached an external provider, so it is quarantined as interrupted.
         """
         recovered = []
         uncertain = ("The host stopped while this step was executing; the external "
@@ -184,10 +184,14 @@ class TaskManager:
                     task.status = TaskStatus.COMPLETED
                 else:
                     step = task.steps[task.current_step]
-                    step.status = "interrupted"
-                    step.error = uncertain
-                    step.approved = False
-                    task.status = TaskStatus.FAILED
+                    if step.status == "pending":
+                        # The durable claim never happened, so no side effect started.
+                        task.status = TaskStatus.PAUSED
+                    else:
+                        step.status = "interrupted"
+                        step.error = uncertain
+                        step.approved = False
+                        task.status = TaskStatus.FAILED
                 task.approval_reason = ""
                 self._persist(task)
                 recovered.append(task.id)
