@@ -262,7 +262,7 @@ class TaskAgentController:
                 r"\b(?:facebook|youtube|tiktok|threads|reddit|pinterest)\b",
                 reply, re.I,
             )
-            if mentions_unsupported_service and not named_channels:
+            if mentions_unsupported_service:
                 return False
 
             successful_channels = set()
