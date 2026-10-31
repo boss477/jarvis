@@ -69,7 +69,10 @@ def test_refresh_setup_removes_deleted_dotenv_keys_and_preserves_external_values
         encoding="utf-8",
     )
     for key in ("JARVIS_REMOVED_KEY", "JARVIS_EXTERNAL_KEY", "JARVIS_NEW_KEY"):
-        monkeypatch.delenv(key, raising=False)
+        # Register the pre-test state even when a key was originally absent, so
+        # _refresh_setup's direct os.environ writes are undone at teardown.
+        monkeypatch.setenv(key, "")
+        monkeypatch.delenv(key)
     monkeypatch.setenv("JARVIS_EXTERNAL_KEY", "shell-value")
 
     window = ComposeWindow.__new__(ComposeWindow)
