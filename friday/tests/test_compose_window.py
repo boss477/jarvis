@@ -103,3 +103,23 @@ def test_refresh_setup_removes_deleted_dotenv_keys_and_preserves_external_values
     assert os.environ["JARVIS_EXTERNAL_KEY"] == "shell-value"
     assert os.environ["JARVIS_NEW_KEY"] == "new-value"
     assert window._dotenv_keys == {"JARVIS_EXTERNAL_KEY", "JARVIS_NEW_KEY"}
+
+@pytest.mark.parametrize(
+    ("targets", "length", "valid"),
+    [
+        ([{"channel": "x_public", "recipient": "public"}], 280, True),
+        ([{"channel": "x_public", "recipient": "public"}], 281, False),
+        ([{"channel": "voice", "recipient": "+15551234567"}], 1200, True),
+        ([{"channel": "voice", "recipient": "+15551234567"}], 1201, False),
+        ([{"channel": "whatsapp", "recipient": "15551234567"}], 1600, True),
+        ([{"channel": "whatsapp", "recipient": "15551234567"}], 1601, False),
+    ],
+)
+def test_compose_text_must_fit_complete_approval_preview(targets, length, valid):
+    text = "x" * length
+    if valid:
+        ComposeWindow.validate_compose_text(text, targets)
+    else:
+        with pytest.raises(ValueError, match="approval prompt must show the complete text"):
+            ComposeWindow.validate_compose_text(text, targets)
+
