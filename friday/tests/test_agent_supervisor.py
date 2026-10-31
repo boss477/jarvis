@@ -174,18 +174,23 @@ def test_supervisor_log_rotates_and_bounds_total_size(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_supervisor, "_MAX_LOG_MESSAGE_BYTES", 64)
     monkeypatch.setattr(agent_supervisor, "_LOG_BACKUP_COUNT", 2)
 
+    # A stale extra backup must be counted (and pruned on rotation), while
+    # the .mutex lock sidecar must not count as a log backup.
+    log_path.with_name("agent-supervisor.log.3").write_text("stale backup")
     for index in range(20):
         agent_supervisor._append_log(log_path, f"record-{index}-" + "x" * 1000)
 
-    backups = [log_path.with_name(f"agent-supervisor.log.{index}")
-               for index in range(1, agent_supervisor._LOG_BACKUP_COUNT + 1)
-               if log_path.with_name(f"agent-supervisor.log.{index}").exists()]
+    backups = sorted(
+        path for path in log_path.parent.glob(f"{log_path.name}.*")
+        if path.name.rsplit(".", 1)[-1].isdigit()
+    )
     files = [log_path, *backups]
     assert len(files) <= 3
     assert all(path.stat().st_size <= 256 for path in files)
     assert sum(path.stat().st_size for path in files) <= 3 * 256
     assert "[truncated]" in log_path.read_text(encoding="utf-8")
     assert log_path.with_name("agent-supervisor.log.1").exists()
+    assert not log_path.with_name("agent-supervisor.log.3").exists()
 
 
 def test_supervisor_log_rotation_failure_is_best_effort(tmp_path, monkeypatch):
@@ -227,19 +232,22 @@ def test_supervisor_log_writes_are_serialized_across_processes(tmp_path):
 
 
 def test_supervisor_stream_splits_long_unterminated_output(tmp_path, monkeypatch):
-    class TrackingStream(io.StringIO):
+    class TrackingStream(io.BytesIO):
         def __init__(self, value):
             super().__init__(value)
             self.read_sizes = []
 
-        def read(self, size=-1):
+        def read1(self, size=-1):
             self.read_sizes.append(size)
-            return super().read(size)
+            return super().read1(size)
 
     messages = []
     monkeypatch.setattr(agent_supervisor, "_append_log",
                         lambda _path, message: messages.append(message))
-    stream = TrackingStream("first\r\n" + "x" * 5000 + "\nlast")
+    # Put a multibyte character across the first read boundary to verify the
+    # incremental decoder preserves UTF-8 while splitting a long line.
+    long_line = "x" * 2047 + "🙂" + "x" * 2953
+    stream = TrackingStream(("first\r\n" + long_line + "\nlast").encode("utf-8"))
 
     agent_supervisor._stream_host_output(stream, tmp_path / "agent-supervisor.log")
 
@@ -249,6 +257,6 @@ def test_supervisor_stream_splits_long_unterminated_output(tmp_path, monkeypatch
     assert messages[-1] == "host: last"
     long_parts = [message[len("host: "):].removesuffix(" [continued]")
                   for message in messages[1:-1]]
-    assert "".join(long_parts) == "x" * 5000
+    assert "".join(long_parts) == long_line
     assert all(len(message) <= agent_supervisor._HOST_OUTPUT_RECORD_CHARS + 24
                for message in messages)
