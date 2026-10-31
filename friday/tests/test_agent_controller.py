@@ -200,6 +200,7 @@ def test_linkedin_post_success_supports_accurate_posted_claim(tmp_path):
 
     assert controller._claim_matches_completed_action(task, "I posted the LinkedIn update.")
 
+
 def test_posted_claim_requires_matching_successful_public_service(tmp_path):
     tasks = TaskManager(tmp_path / "tasks.jsonl")
     workers = WorkerRegistry(); workers.register("local", {"communication"}); workers.set_online("local")
@@ -224,7 +225,6 @@ def test_posted_claim_requires_matching_successful_public_service(tmp_path):
     assert not controller._claim_matches_completed_action(task, "I posted the LinkedIn update.")
     assert not controller._claim_matches_completed_action(task, "I posted on X and LinkedIn.")
     assert not controller._claim_matches_completed_action(task, "I posted on Facebook.")
-
 
 
 @pytest.mark.parametrize(
