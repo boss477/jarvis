@@ -44,8 +44,13 @@ def request_stop(state_path: Path) -> bool:
         stop_path.write_text(str(time.time_ns()), encoding="ascii")
         return True
     else:
-        probe.close()
-        stop_path.unlink(missing_ok=True)
+        # Remove a stale marker while still holding the supervisor lock. If the
+        # lock is released first, a new supervisor or concurrent stop request
+        # can race with this unlink and lose a fresh stop request.
+        try:
+            stop_path.unlink(missing_ok=True)
+        finally:
+            probe.close()
         # Retain the lock file; deleting an unlocked file can split lock identity
         # if another process opens it concurrently.
         return False
