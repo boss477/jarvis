@@ -136,6 +136,19 @@ def test_completion_claim_requires_matching_action_evidence(tmp_path):
         {"tool": "respond", "args": {"text": "I deleted it."}},
     ])
     assert not controller._claim_matches_completed_action(unrelated, "I deleted it.")
+    for claim in ("I've placed the order.", "I've completed the order.",
+                  "I've finished the order."):
+        assert not controller._claim_matches_completed_action(unrelated, claim)
+
+    orchestrator.register_tool(
+        "buy", StepPolicy("files", requires_approval=True), lambda _: "order placed"
+    )
+    placed = tasks.create("place an order", [
+        {"tool": "buy", "args": {"item": "book"}, "status": "completed",
+         "result": "order placed"},
+        {"tool": "respond", "args": {"text": "I placed the order."}},
+    ])
+    assert controller._claim_matches_completed_action(placed, "I placed the order.")
 
     matching = tasks.create("delete a file", [
         {"tool": "delete", "args": {"path": "file.txt"},
