@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
+from queue import Empty
 import threading
 import pytest
 
@@ -37,6 +38,12 @@ def _approve_task_in_process(path, task_id, barrier, outcomes):
         outcomes.put(True)
     except ValueError:
         outcomes.put(False)
+
+
+def _recover_task_in_process(path, started, outcomes):
+    manager = TaskManager(path)
+    started.set()
+    outcomes.put(manager.recover_interrupted_tasks())
 
 
 def test_task_checkpoints_and_completes(tmp_path):
@@ -349,25 +356,26 @@ def test_recovery_waits_for_active_task_execution_lock(tmp_path):
     manager.start(task.id)
     assert manager.claim_step(task.id, 0)
 
-    recovery_started = threading.Event()
-    recovery_finished = threading.Event()
-    recovered = []
-
-    def recover():
-        recovery_started.set()
-        recovered.extend(TaskManager(path).recover_interrupted_tasks())
-        recovery_finished.set()
+    context = multiprocessing.get_context("spawn")
+    started = context.Event()
+    outcomes = context.Queue()
+    process = context.Process(
+        target=_recover_task_in_process,
+        args=(str(path), started, outcomes),
+    )
 
     with task_execution_lock(path, task.id):
-        worker = threading.Thread(target=recover)
-        worker.start()
-        assert recovery_started.wait(timeout=2)
-        # Recovery must wait until the active execution releases the shared lock.
-        assert not recovery_finished.wait(timeout=0.1)
+        process.start()
+        assert started.wait(timeout=10)
+        # A separate process must wait for the active task's execution lock.
+        with pytest.raises(Empty):
+            outcomes.get(timeout=0.25)
         manager.checkpoint(task.id, success=True, result="sent")
 
-    worker.join(timeout=2)
-    assert not worker.is_alive()
-    assert recovered == []
+    process.join(timeout=15)
+    assert not process.is_alive()
+    assert process.exitcode == 0
+    assert outcomes.get(timeout=2) == []
     assert TaskManager(path).get(task.id).status == TaskStatus.COMPLETED
+
 
