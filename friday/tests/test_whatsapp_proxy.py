@@ -92,10 +92,10 @@ def test_whatsapp_proxy_closes_stalled_request_body():
     client.settimeout(2)
     try:
         client.sendall(
-            b"POST /whatsapp HTTP/1.1\\r\\n"
-            b"Host: localhost\\r\\n"
-            b"Content-Length: 10\\r\\n"
-            b"\\r\\n"
+            b"POST /whatsapp HTTP/1.1\r\n"
+            b"Host: localhost\r\n"
+            b"Content-Length: 10\r\n"
+            b"\r\n"
         )
         try:
             response = client.recv(1)
