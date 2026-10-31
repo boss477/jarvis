@@ -279,7 +279,12 @@ class TaskAgentController:
                 claim_clause, re.I,
             )
             for destination in destinations:
-                for candidate in re.split(r"\s+(?:and|or|but|then)\s+|[,/]", destination, flags=re.I):
+                # "and then" starts a follow-up action, not another destination.
+                destination = re.split(
+                    r"\s+(?:and\s+then|but|while|because|so)\s+",
+                    destination, maxsplit=1, flags=re.I,
+                )[0]
+                for candidate in re.split(r"\s+(?:and|or)\s+|[,/]", destination, flags=re.I):
                     candidate = candidate.strip()
                     if not candidate or generic_destination.fullmatch(candidate):
                         continue
