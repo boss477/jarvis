@@ -552,9 +552,15 @@ class TwilioVoiceAdapter(ChannelAdapter):
             call_sid = response.json().get("sid")
             if not call_sid:
                 raise RuntimeError("Twilio accepted no call SID in its response")
-        except Exception:
+        except httpx.HTTPStatusError:
+            # An explicit HTTP rejection means the call was not created.
             if public_voice_url:
                 VOICE_SESSIONS.discard(session_id)
+            raise
+        except Exception:
+            # A timeout or transport/response error is ambiguous: Twilio may
+            # have accepted the call before the client failed. Keep the session
+            # so its webhook can still respond; TTL cleanup removes orphaned sessions.
             raise
         return f"call request accepted by Twilio; call SID {call_sid} (connection not yet confirmed)"
 
