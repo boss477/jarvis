@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from copy import deepcopy
@@ -19,6 +20,9 @@ _EXTERNAL_COMPLETION_CLAIM = re.compile(
     r"purchased|shared|changed|emailed|messaged|placed|ordered|uploaded|downloaded)\b",
     re.IGNORECASE,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class TaskAgentController:
@@ -146,9 +150,13 @@ class TaskAgentController:
                 result = {"status": TaskStatus.FAILED.value, "error": str(exc)}
         status = result.get("status")
         if status == "checkpoint_failed":
+            logger.error(
+                "Task %s action may have run but checkpoint persistence failed: %s",
+                task_id,
+                result.get("error") or "checkpoint failed",
+            )
             return (
-                f"Task {task_id}: an action may have run, but its result could not be saved "
-                f"({result.get('error', 'checkpoint failed')}). "
+                f"Task {task_id}: an action may have run, but its result could not be saved. "
                 "Verify the destination before retrying."
             )
         if status == TaskStatus.WAITING_APPROVAL.value:
