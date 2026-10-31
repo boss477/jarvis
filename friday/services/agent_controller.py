@@ -362,7 +362,8 @@ class TaskAgentController:
                 if step.tool == "calendar_add" and step.result:
                     return True
             elif action in {"deleted", "updated", "changed", "created", "submitted",
-                            "purchased", "ordered", "uploaded", "downloaded"}:
+                            "purchased", "ordered", "placed", "completed", "finished",
+                            "uploaded", "downloaded"}:
                 # These verbs describe distinct operations. A successful but
                 # unrelated approval-gated step is not evidence for the claim.
                 matching_tools = {
@@ -373,6 +374,9 @@ class TaskAgentController:
                     "submitted": {"submit", "form_submit"},
                     "purchased": {"buy", "purchase"},
                     "ordered": {"buy", "purchase", "order"},
+                    "placed": {"buy", "purchase", "order", "place_order"},
+                    "completed": {"complete", "task_complete"},
+                    "finished": {"finish", "task_finish"},
                     "uploaded": {"upload", "file_upload"},
                     "downloaded": {"download", "file_download"},
                 }[action]
