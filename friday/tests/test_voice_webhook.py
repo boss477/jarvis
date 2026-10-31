@@ -128,12 +128,16 @@ def test_voice_session_store_serializes_replies_per_session(tmp_path):
             release_first.wait(timeout=2)
         return f"reply to {speech}"
 
-    first = threading.Thread(
-        target=lambda: results.setdefault("first", store.reply(session_id, "first", generator))
-    )
-    second = threading.Thread(
-        target=lambda: results.setdefault("second", store.reply(session_id, "second", generator))
-    )
+    errors = {}
+
+    def run_reply(key, speech):
+        try:
+            results[key] = store.reply(session_id, speech, generator)
+        except Exception as exc:
+            errors[key] = exc
+
+    first = threading.Thread(target=run_reply, args=("first", "first"))
+    second = threading.Thread(target=run_reply, args=("second", "second"))
     first.start()
     assert first_started.wait(timeout=2)
     second.start()
@@ -144,6 +148,11 @@ def test_voice_session_store_serializes_replies_per_session(tmp_path):
     first.join(timeout=2)
     second.join(timeout=2)
     assert not first.is_alive() and not second.is_alive()
+    assert errors == {}
+    assert results == {
+        "first": ("reply to first", False),
+        "second": ("reply to second", False),
+    }
     assert [speech for speech, _turns in calls] == ["first", "second"]
     assert calls[1][1] == (("caller", "first"), ("agent", "reply to first"))
 
