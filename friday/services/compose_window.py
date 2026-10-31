@@ -16,6 +16,14 @@ from .agent_factory import build_persistent_agent
 from .remote_http import whatsapp_sender_allowlist_configured
 
 
+def _configured_state_path() -> Path:
+    """Use the same durable task-store path as the persistent host."""
+    path = Path(os.getenv("AGENT_TASKS_PATH", "agent-state/tasks.jsonl"))
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    return path.resolve()
+
+
 class ComposeWindow:
     def __init__(self, runtime=None):
         self.env_path = Path(__file__).resolve().parents[1] / ".env"
@@ -24,7 +32,9 @@ class ComposeWindow:
         # Track keys provided by .env so Refresh setup can remove values that
         # were deleted from the file without touching shell-provided settings.
         self._dotenv_keys = set(dotenv_values(self.env_path))
-        self.runtime = runtime or build_persistent_agent(plan_with_openai_compatible_model)
+        self.runtime = runtime or build_persistent_agent(
+            plan_with_openai_compatible_model, state_path=_configured_state_path()
+        )
         self.root = tk.Tk()
         self.root.title("Jarvis · Compose")
         self.root.geometry("760x820")
