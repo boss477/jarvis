@@ -4,7 +4,7 @@ import multiprocessing
 import threading
 import pytest
 
-from friday.services.task_manager import TaskManager, TaskStatus
+from friday.services.task_manager import TaskManager, TaskStatus, task_execution_lock
 from friday.services.task_commands import TaskCommandService
 
 
@@ -341,3 +341,33 @@ def test_recovery_quarantines_in_flight_steps_after_pause_or_cancel(
 
     with pytest.raises(ValueError, match="not paused or queued"):
         restarted.resume(task.id)
+
+def test_recovery_waits_for_active_task_execution_lock(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("send a message", [{"tool": "send"}])
+    manager.start(task.id)
+    assert manager.claim_step(task.id, 0)
+
+    recovery_started = threading.Event()
+    recovery_finished = threading.Event()
+    recovered = []
+
+    def recover():
+        recovery_started.set()
+        recovered.extend(TaskManager(path).recover_interrupted_tasks())
+        recovery_finished.set()
+
+    with task_execution_lock(path):
+        worker = threading.Thread(target=recover)
+        worker.start()
+        assert recovery_started.wait(timeout=2)
+        # Recovery must wait until the active execution releases the shared lock.
+        assert not recovery_finished.wait(timeout=0.1)
+        manager.checkpoint(task.id, success=True, result="sent")
+
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert recovered == []
+    assert TaskManager(path).get(task.id).status == TaskStatus.COMPLETED
+
