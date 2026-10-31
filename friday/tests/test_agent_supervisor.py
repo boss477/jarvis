@@ -76,7 +76,7 @@ def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monk
     run_supervisor(state_path)
 
     assert len(launches) == 1
-    assert launches[0][0][-2:] == ["-m", "friday.services.agent_host"]
+    assert launches[0][0][1:4] == ["-u", "-m", "friday.services.agent_host"]
     log = (tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log").read_text()
     assert "Agent host exited with code 1; restarting in 2s." in log
     assert "Supervisor stopped." in log
