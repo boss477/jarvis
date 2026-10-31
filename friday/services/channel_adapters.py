@@ -557,8 +557,13 @@ class TwilioVoiceAdapter(ChannelAdapter):
             if public_voice_url:
                 VOICE_SESSIONS.discard(session_id)
             raise
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            # Connection setup failed before Twilio could receive the request.
+            if public_voice_url:
+                VOICE_SESSIONS.discard(session_id)
+            raise
         except Exception:
-            # A timeout or transport/response error is ambiguous: Twilio may
+            # Read/write timeouts and response errors are ambiguous: Twilio may
             # have accepted the call before the client failed. Keep the session
             # so its webhook can still respond; TTL cleanup removes orphaned sessions.
             raise
