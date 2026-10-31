@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 
 from .remote_http import MAX_WEBHOOK_BODY_BYTES
 
+UPSTREAM_TIMEOUT_SECONDS = 30
+
 
 def _loopback_host(value: str, setting: str) -> str:
     host = value.strip() or "127.0.0.1"
@@ -39,6 +41,7 @@ def _port(value: str, setting: str) -> int:
 class WhatsAppProxyHandler(BaseHTTPRequestHandler):
     upstream_host = "127.0.0.1"
     upstream_port = 8767
+    timeout = 30
 
     def do_GET(self):
         self._proxy()
@@ -82,7 +85,7 @@ class WhatsAppProxyHandler(BaseHTTPRequestHandler):
             headers["Content-Length"] = str(size)
 
         connection = http.client.HTTPConnection(
-            self.upstream_host, self.upstream_port, timeout=10,
+            self.upstream_host, self.upstream_port, timeout=UPSTREAM_TIMEOUT_SECONDS,
         )
         try:
             target = parsed.path + (f"?{parsed.query}" if parsed.query else "")
