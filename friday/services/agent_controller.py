@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from .communication_hub import CommunicationMessage
 from .orchestrator import TaskOrchestrator
-from .task_manager import TaskManager, TaskStatus
+from .task_manager import TaskManager, TaskStatus, task_execution_lock
 
 
 _EXTERNAL_COMPLETION_CLAIM = re.compile(
@@ -139,6 +139,11 @@ class TaskAgentController:
         return self.advance(task.id)
 
     def advance(self, task_id: str) -> str:
+        """Advance one task while excluding cross-process startup recovery."""
+        with task_execution_lock(self.tasks.path):
+            return self._advance_locked(task_id)
+
+    def _advance_locked(self, task_id: str) -> str:
         result = {"status": TaskStatus.RUNNING.value}
         while result.get("status") == TaskStatus.RUNNING.value:
             try:
