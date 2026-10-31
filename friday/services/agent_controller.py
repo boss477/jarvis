@@ -281,7 +281,7 @@ class TaskAgentController:
             for destination in destinations:
                 for candidate in re.split(r"\s+(?:and|or|but|then)\s+|[,/]", destination, flags=re.I):
                     candidate = candidate.strip()
-                    if not candidate:
+                    if not candidate or generic_destination.fullmatch(candidate):
                         continue
                     if any(re.search(pattern, candidate, re.I)
                            for pattern in channel_patterns.values()):
