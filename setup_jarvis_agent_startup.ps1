@@ -4,30 +4,51 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$uv = Get-Command "uv" -ErrorAction Stop
 $startupFolder = [Environment]::GetFolderPath("Startup")
 $shortcutPath = Join-Path $startupFolder "Jarvis Persistent Agent.lnk"
 
 if ($Remove) {
-    Push-Location $repoRoot
-    try {
-        & $uv.Source run python -m friday.services.agent_supervisor --stop
-        if ($LASTEXITCODE -ne 0) {
-            throw "Could not send a stop request to the Jarvis supervisor."
+    $stopRequested = $false
+    $uv = Get-Command "uv" -ErrorAction SilentlyContinue
+    if ($uv) {
+        try {
+            Push-Location $repoRoot
+            try {
+                & $uv.Source run python -m friday.services.agent_supervisor --stop
+                if ($LASTEXITCODE -eq 0) {
+                    $stopRequested = $true
+                }
+                else {
+                    Write-Warning "The supervisor stop request failed (exit code $LASTEXITCODE)."
+                }
+            }
+            finally {
+                Pop-Location
+            }
+        }
+        catch {
+            Write-Warning "Could not request a supervisor stop: $($_.Exception.Message)"
         }
     }
-    finally {
-        Pop-Location
+    else {
+        Write-Warning "uv was not found; could not request a supervisor stop."
     }
+
     if (Test-Path -LiteralPath $shortcutPath) {
         Remove-Item -LiteralPath $shortcutPath
-        Write-Host "Stopped the supervisor and removed Jarvis Persistent Agent from Windows Startup."
+        if ($stopRequested) {
+            Write-Host "Removed Jarvis Persistent Agent from Windows Startup and requested a supervisor stop."
+        }
+        else {
+            Write-Host "Removed Jarvis Persistent Agent from Windows Startup; supervisor stop was not confirmed."
+        }
     }
     else {
         Write-Host "Jarvis Persistent Agent was not installed in Windows Startup."
     }
     exit 0
 }
+$uv = Get-Command "uv" -ErrorAction Stop
 
 if (-not (Test-Path -LiteralPath $startupFolder -PathType Container)) {
     throw "Windows Startup folder is unavailable: $startupFolder"
