@@ -46,6 +46,10 @@ if ($Remove) {
     else {
         Write-Host "Jarvis Persistent Agent was not installed in Windows Startup."
     }
+    if (-not $stopRequested) {
+        # Signal failure so scripted callers know the host may still be running.
+        exit 1
+    }
     exit 0
 }
 $uv = Get-Command "uv" -ErrorAction Stop
