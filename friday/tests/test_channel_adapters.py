@@ -188,6 +188,21 @@ def test_instagram_payload_parses_text():
                 "message": {"mid": "m1", "text": "hello"}}]}]}
     assert InstagramAdapter().parse(payload)[0].sender_id == "u1"
 
+def test_instagram_echo_events_are_not_parsed_as_inbound_messages():
+    payload = {"entry": [{"messaging": [
+        {"sender": {"id": "account-1"},
+         "message": {"mid": "outbound-1", "text": "our own reply", "is_echo": True}},
+        {"sender": {"id": "customer-2"},
+         "message": {"mid": "inbound-2", "text": "real customer message"}},
+    ]}]}
+
+    messages = InstagramAdapter().parse(payload)
+
+    assert len(messages) == 1
+    assert messages[0].sender_id == "customer-2"
+    assert messages[0].text == "real customer message"
+    assert messages[0].message_id == "inbound-2"
+
 def test_instagram_message_uses_bearer_header(monkeypatch):
     import friday.services.channel_adapters as adapters
 
