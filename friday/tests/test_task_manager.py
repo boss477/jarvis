@@ -358,7 +358,7 @@ def test_recovery_waits_for_active_task_execution_lock(tmp_path):
         recovered.extend(TaskManager(path).recover_interrupted_tasks())
         recovery_finished.set()
 
-    with task_execution_lock(path):
+    with task_execution_lock(path, task.id):
         worker = threading.Thread(target=recover)
         worker.start()
         assert recovery_started.wait(timeout=2)
