@@ -267,19 +267,19 @@ class TaskAgentController:
             # unknown services (for example, Bluesky) must not be inferred as
             # successfully posted merely because a different destination worked.
             generic_destination = re.compile(
-                r"(?:(?:my|our|your|the|a|an)\\s+)*(?:public|social media|social network|"
+                r"(?:(?:my|our|your|the|a|an)\s+)*(?:public|social media|social network|"
                 r"internet|web|online|audience|followers|people|everyone|community|profile|"
                 r"page|feed|account|channel|platform|website|site|blog|company|business)"
-                r"(?:\\s+(?:page|profile|feed|account|channel|timeline|site|website|blog))?",
+                r"(?:\s+(?:page|profile|feed|account|channel|timeline|site|website|blog))?",
                 re.I,
             )
             destinations = re.findall(
-                r"\\b(?:on|to|via)\\s+(?:the\\s+)?"
-                r"([a-z][a-z0-9&.'+-]*(?:\\s+[a-z][a-z0-9&.'+-]*){0,2})",
+                r"\b(?:on|to|via)\s+(?:the\s+)?"
+                r"([a-z][a-z0-9&.'+-]*(?:\s+[a-z][a-z0-9&.'+-]*){0,2})",
                 claim_clause, re.I,
             )
             for destination in destinations:
-                for candidate in re.split(r"\\s+(?:and|or|but|then)\\s+|[,/]", destination, flags=re.I):
+                for candidate in re.split(r"\s+(?:and|or|but|then)\s+|[,/]", destination, flags=re.I):
                     candidate = candidate.strip()
                     if not candidate:
                         continue
@@ -287,13 +287,12 @@ class TaskAgentController:
                            for pattern in channel_patterns.values()):
                         continue
                     candidate = re.sub(
-                        r"\\b(?:update|post|posting|page|profile|feed|account|channel|timeline)\\b.*$",
+                        r"\b(?:update|post|posting|page|profile|feed|account|channel|timeline)\b.*$",
                         "", candidate, flags=re.I,
                     ).strip()
                     if not candidate or generic_destination.fullmatch(candidate):
                         continue
                     return False
-
             successful_channels = set()
             for step in task.steps:
                 if step.status != "completed":
