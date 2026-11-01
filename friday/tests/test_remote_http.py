@@ -563,3 +563,37 @@ def test_unknown_task_command_reply_does_not_quote_key_error(tmp_path):
         "ok": False,
         "reply": "unknown task: 000000000000",
     }
+
+
+def test_pending_separates_safe_resume_from_uncertain_recovery(tmp_path):
+    manager = TaskManager(tmp_path / "tasks.jsonl")
+    origin = {
+        "origin_channel": "whatsapp",
+        "origin_sender_id": "u1",
+        "origin_conversation_id": "c1",
+    }
+    safe = manager.create("safe task", [{"tool": "send"}], **origin)
+    manager.start(safe.id)
+    manager.pause(safe.id)
+
+    uncertain = manager.create("uncertain task", [{"tool": "send"}], **origin)
+    manager.start(uncertain.id)
+    assert manager.claim_step(uncertain.id, 0)
+    manager.recover_interrupted_tasks()
+
+    gateway = RemoteGateway(TaskCommandService(manager))
+    result = gateway.route_command(
+        IncomingMessage("whatsapp", "u1", "/pending", conversation_id="c1")
+    )
+
+    reply = result["reply"]
+    assert "Tasks paused safely before their next action:" in reply
+    assert f"- {safe.id}: safe task" in reply
+    assert f"/resume {safe.id}" in reply
+    assert "Tasks interrupted during execution (outcome uncertain):" in reply
+    assert f"- {uncertain.id}: uncertain task" in reply
+    assert "Check each destination before retrying" in reply
+    safe_section = reply.split(
+        "Tasks interrupted during execution (outcome uncertain):", 1
+    )[0]
+    assert "outcome uncertain" not in safe_section
