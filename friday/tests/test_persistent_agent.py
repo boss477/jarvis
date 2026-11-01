@@ -314,3 +314,14 @@ def test_runtime_logs_provider_exception_message(caplog):
         runtime._run()
 
     assert "RuntimeError: HTTP 429 rate limit exceeded" in caplog.text
+
+
+
+def test_runtime_declares_factory_provided_service_attributes():
+    assert {
+        "tasks",
+        "memory",
+        "orchestrator",
+        "controller",
+        "webhook_gateway",
+    }.issubset(PersistentAgentRuntime.__annotations__)
