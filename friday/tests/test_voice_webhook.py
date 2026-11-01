@@ -231,3 +231,15 @@ def test_voice_session_store_failed_atomic_replace_preserves_original(
         store.create("new call")
 
     assert path.read_bytes() == original
+
+
+def test_voice_session_store_caps_opener_at_approved_prompt_length(tmp_path):
+    store = VoiceSessionStore(tmp_path / "voice-sessions.json")
+    session_id = store.create("A" * 1500)
+    captured = []
+
+    store.reply(session_id, "hello", lambda opener, _turns, _speech: (
+        captured.append(opener) or ("reply", False)
+    ))
+
+    assert captured == ["A" * 1200]
