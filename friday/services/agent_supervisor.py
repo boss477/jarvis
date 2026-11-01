@@ -56,6 +56,18 @@ def request_stop(state_path: Path) -> bool:
         return False
 
 
+
+def _agent_host_is_running(state_path: Path) -> bool:
+    """Detect a host that outlived its supervisor by probing the host lock."""
+    try:
+        probe = AgentHostLock(state_path)
+    except RuntimeError:
+        return True
+    else:
+        probe.close()
+        return False
+
+
 def _log_path() -> Path:
     local_app_data = os.getenv("LOCALAPPDATA", "").strip()
     base = Path(local_app_data) / "Friday" / "logs" if local_app_data else Path("logs")
@@ -262,9 +274,17 @@ def main() -> None:
     if "--stop" in sys.argv[1:]:
         if request_stop(state_path):
             print("Stop requested for the Jarvis agent supervisor.")
+            return
+        if _agent_host_is_running(state_path):
+            print(
+                "No Jarvis supervisor is running, but an agent host still owns "
+                "this task store; it may be orphaned and remains active."
+            )
         else:
-            print("No Jarvis agent supervisor is currently running.")
-        return
+            print("No Jarvis agent supervisor is currently running; stop was not confirmed.")
+        # The PowerShell remover treats a non-zero exit as an unconfirmed stop.
+        # Never let it report success when no supervisor accepted the request.
+        raise SystemExit(1)
     run_supervisor(state_path)
 
 
