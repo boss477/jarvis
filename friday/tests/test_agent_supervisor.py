@@ -213,6 +213,35 @@ def test_supervisor_terminates_host_when_output_thread_start_fails(tmp_path, mon
 
     assert events == ["terminate"]
 
+
+def test_stop_cli_reports_orphaned_host_and_exits_nonzero(tmp_path, monkeypatch, capsys):
+    state_path = tmp_path / "tasks.jsonl"
+    host_lock = AgentHostLock(state_path)
+    monkeypatch.setattr(agent_supervisor, "_state_path", lambda: state_path)
+    monkeypatch.setattr(agent_supervisor, "load_dotenv", lambda *_args: None)
+    monkeypatch.setattr(agent_supervisor.sys, "argv", ["agent_supervisor", "--stop"])
+
+    try:
+        with pytest.raises(SystemExit) as exc:
+            agent_supervisor.main()
+        assert exc.value.code == 1
+        assert "agent host still owns this task store" in capsys.readouterr().out
+    finally:
+        host_lock.close()
+
+
+def test_stop_cli_returns_nonzero_when_no_supervisor_exists(tmp_path, monkeypatch, capsys):
+    state_path = tmp_path / "tasks.jsonl"
+    monkeypatch.setattr(agent_supervisor, "_state_path", lambda: state_path)
+    monkeypatch.setattr(agent_supervisor, "load_dotenv", lambda *_args: None)
+    monkeypatch.setattr(agent_supervisor.sys, "argv", ["agent_supervisor", "--stop"])
+
+    with pytest.raises(SystemExit) as exc:
+        agent_supervisor.main()
+
+    assert exc.value.code == 1
+    assert "stop was not confirmed" in capsys.readouterr().out
+
 def test_supervisor_is_single_instance(tmp_path):
     first = AgentHostLock(tmp_path / "tasks.jsonl", suffix=".supervisor.lock")
     try:
