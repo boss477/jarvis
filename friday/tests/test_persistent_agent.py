@@ -1,4 +1,5 @@
 import time
+import logging
 import threading
 import pytest
 
@@ -285,3 +286,31 @@ def test_message_deduplication_is_scoped_to_conversation_across_restart(tmp_path
     assert not recovered.claim_delivery(first)
     assert recovered.claim_delivery(second)
     assert calls == [("c1", "m1"), ("c2", "m1")]
+
+
+
+def test_runtime_logs_provider_exception_message(caplog):
+    hub = CommunicationHub()
+    runtime = PersistentAgentRuntime(hub, lambda _message: "unused")
+
+    def fail_process_once():
+        raise RuntimeError("HTTP 429 rate limit exceeded")
+
+    class StopAfterWait:
+        def __init__(self):
+            self.waited = False
+
+        def is_set(self):
+            return self.waited
+
+        def wait(self, _seconds):
+            self.waited = True
+            return True
+
+    runtime.process_once = fail_process_once
+    runtime._stop = StopAfterWait()
+
+    with caplog.at_level(logging.WARNING, logger="friday.services.persistent_agent"):
+        runtime._run()
+
+    assert "RuntimeError: HTTP 429 rate limit exceeded" in caplog.text
