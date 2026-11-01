@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from friday.services import whatsapp_proxy
 from friday.services.whatsapp_proxy import create_whatsapp_proxy_server
 
 
@@ -30,6 +31,11 @@ class EchoWebhookHandler(BaseHTTPRequestHandler):
 
     def log_message(self, *_args):
         pass
+
+
+def test_whatsapp_proxy_timeout_exceeds_planner_request_timeout():
+    assert whatsapp_proxy.UPSTREAM_TIMEOUT_SECONDS > 45
+    assert whatsapp_proxy.WhatsAppProxyHandler.timeout > 45
 
 
 def test_whatsapp_proxy_forwards_only_allowed_webhook_headers():
