@@ -346,3 +346,47 @@ def test_checkpoint_failure_warns_without_exposing_internal_error(tmp_path, monk
     assert "disk full" not in reply
     assert " failed:" not in reply.lower()
     assert "disk full" in caplog.text
+
+
+def test_partial_compose_delivery_never_reports_that_no_external_action_occurred(tmp_path, monkeypatch):
+    tasks = TaskManager(tmp_path / "tasks.jsonl")
+    workers = WorkerRegistry()
+    workers.register("local", {"communication"})
+    workers.set_online("local")
+    orchestrator = TaskOrchestrator(tasks, workers, ConnectorRegistry())
+    orchestrator.register_tool(
+        "compose_send", StepPolicy("communication", requires_approval=True),
+        lambda _args: "sent",
+    )
+    controller = TaskAgentController(tasks, orchestrator, lambda _: [])
+    task = tasks.create("publish announcement", [
+        {
+            "tool": "compose_send",
+            "args": {"targets": [
+                {"channel": "x_public", "recipient": "public"},
+                {"channel": "linkedin_public", "recipient": "public"},
+            ], "text": "Launch announcement"},
+            "status": "completed",
+            "result": json.dumps({"kind": "channel_delivery", "results": [
+                {"channel": "x_public", "recipient": "public", "ok": True},
+                {"channel": "linkedin_public", "recipient": "public", "ok": False},
+            ]}),
+        },
+        {
+            "tool": "respond",
+            "args": {"text": "I posted the X and LinkedIn updates."},
+            "status": "completed",
+            "result": "I posted the X and LinkedIn updates.",
+        },
+    ])
+    monkeypatch.setattr(
+        orchestrator, "execute_next",
+        lambda _task_id: {"status": TaskStatus.COMPLETED.value},
+    )
+
+    reply = controller.advance(task.id)
+
+    assert "only partially completed" in reply
+    assert "1/2 destinations sent, 1 failed" in reply
+    assert "verify which destinations received it before retrying" in reply.lower()
+    assert "I haven't taken an external action" not in reply
