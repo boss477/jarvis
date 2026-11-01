@@ -589,7 +589,7 @@ def test_pending_separates_safe_resume_from_uncertain_recovery(tmp_path):
     reply = result["reply"]
     assert "Tasks paused safely before their next action:" in reply
     assert f"- {safe.id}: safe task" in reply
-    assert f"/resume {safe.id}" in reply
+    assert "Use /resume <task-id> to continue these tasks" in reply
     assert "Tasks interrupted during execution (outcome uncertain):" in reply
     assert f"- {uncertain.id}: uncertain task" in reply
     assert "Check each destination before retrying" in reply
