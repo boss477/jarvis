@@ -1,4 +1,5 @@
 from friday.services.action_agent import PersistentActionAgent
+from friday.services.remote_gateway import UnconfiguredChannel
 from friday.services.communication_hub import (
     CallbackAdapter, CommunicationHub, CommunicationMessage, DeliveryResult, build_default_hub,
 )
@@ -113,3 +114,13 @@ def test_delivery_errors_redact_webhook_urls(monkeypatch):
     assert not result.ok
     assert webhook not in result.detail
     assert "[redacted]" in result.detail
+
+
+def test_unconfigured_channel_returns_structured_failure():
+    result = UnconfiguredChannel("whatsapp").send("chat-1", "hello")
+
+    assert isinstance(result, DeliveryResult)
+    assert result.channel == "whatsapp"
+    assert result.conversation_id == "chat-1"
+    assert result.ok is False
+    assert result.detail == "whatsapp is not configured; message not sent."
