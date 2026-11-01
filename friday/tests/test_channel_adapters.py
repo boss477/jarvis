@@ -2,6 +2,7 @@ import httpx
 import pytest
 
 from friday.services import channel_adapters, voice_webhook
+from friday.services.communication_hub import DeliveryResult
 
 from friday.services.channel_adapters import (DiscordAdapter, InstagramAdapter, InstagramPublicPostAdapter,
                                                LinkedInPublicPostAdapter, SlackAdapter, TelegramAdapter,
@@ -76,7 +77,10 @@ def test_whatsapp_interactive_buttons_validate_provider_limits(monkeypatch):
 def test_whatsapp_cloud_without_credentials_is_explicitly_unconfigured(monkeypatch):
     monkeypatch.delenv("WHATSAPP_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("WHATSAPP_PHONE_NUMBER_ID", raising=False)
-    assert "not configured" in WhatsAppCloudAdapter().send_message("u1", "hello")
+    result = WhatsAppCloudAdapter().send_message("u1", "hello")
+    assert isinstance(result, DeliveryResult) and not result.ok
+    assert isinstance(result, DeliveryResult) and not result.ok
+    assert "not configured" in result.detail.detail
 
 def test_slack_events_parse_text():
     payload = {"event": {"type": "message", "channel": "C1", "text": "hello", "event_ts": "1"}}
@@ -174,7 +178,9 @@ def test_teams_payload_parses_text():
 
 def test_telegram_without_credentials_is_explicitly_unconfigured(monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    assert "not configured" in TelegramAdapter().send_message("u1", "hello")
+    result = TelegramAdapter().send_message("u1", "hello")
+    assert isinstance(result, DeliveryResult) and not result.ok
+    assert "not configured" in result.detail
 
 def test_telegram_uses_group_chat_as_reply_conversation():
     message = TelegramAdapter().parse({"message": {
@@ -184,7 +190,9 @@ def test_telegram_uses_group_chat_as_reply_conversation():
 
 def test_x_without_credentials_is_explicitly_unconfigured(monkeypatch):
     monkeypatch.delenv("X_USER_ACCESS_TOKEN", raising=False)
-    assert "not configured" in XAdapter().send_message("u1", "hello")
+    result = XAdapter().send_message("u1", "hello")
+    assert isinstance(result, DeliveryResult) and not result.ok
+    assert "not configured" in result.detail
 
 def test_instagram_payload_parses_text():
     payload = {"entry": [{"messaging": [{"sender": {"id": "u1"},
@@ -266,7 +274,9 @@ def test_instagram_public_post_uses_bearer_header_for_both_requests(monkeypatch)
 def test_voice_without_credentials_is_explicitly_unconfigured(monkeypatch):
     for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM_NUMBER"):
         monkeypatch.delenv(key, raising=False)
-    assert "not configured" in TwilioVoiceAdapter().send_message("+15550000000", "hello")
+    result = TwilioVoiceAdapter().send_message("+15550000000", "hello")
+    assert isinstance(result, DeliveryResult) and not result.ok
+    assert "not configured" in result.detail
 
 def test_telegram_update_parses_text():
     message = TelegramAdapter().parse({"message": {"message_id": 2, "from": {"id": 7}, "text": "hello"}})[0]
