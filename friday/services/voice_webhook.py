@@ -160,7 +160,7 @@ class VoiceSessionStore:
                 del sessions[oldest]
             session_id = secrets.token_urlsafe(24)
             sessions[session_id] = {
-                "opener": opener[:2000], "turns": [], "created_at": now,
+                "opener": opener[:1200], "turns": [], "created_at": now,
             }
         return session_id
 
