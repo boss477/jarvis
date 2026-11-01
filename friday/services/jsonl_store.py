@@ -196,30 +196,42 @@ def read_jsonl_records(
 def _append_jsonl_record_unlocked(target: Path, record: dict[str, Any]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.exists():
-        data = target.read_bytes()
-        if data and not data.endswith((b"\n", b"\r")):
-            last_newline = max(data.rfind(b"\n"), data.rfind(b"\r"))
-            offset = last_newline + 1
-            tail = data[offset:]
-            try:
-                decoded = tail.decode("utf-8")
-                parsed = json.loads(decoded)
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                # A malformed non-terminated final record is the interrupted
-                # append. Keep all preceding committed records intact.
-                with target.open("r+b") as handle:
-                    handle.truncate(offset)
-            else:
-                if not isinstance(parsed, dict):
-                    with target.open("r+b") as handle:
+        with target.open("r+b") as handle:
+            handle.seek(0, os.SEEK_END)
+            end = handle.tell()
+            if end:
+                handle.seek(-1, os.SEEK_END)
+                last_byte = handle.read(1)
+                if last_byte not in (b"\n", b"\r"):
+                    offset = 0
+                    position = end
+                    while position > 0:
+                        chunk_size = min(8192, position)
+                        position -= chunk_size
+                        handle.seek(position)
+                        chunk = handle.read(chunk_size)
+                        last_newline = max(chunk.rfind(b"\n"), chunk.rfind(b"\r"))
+                        if last_newline >= 0:
+                            offset = position + last_newline + 1
+                            break
+                    handle.seek(offset)
+                    tail = handle.read()
+                    try:
+                        decoded = tail.decode("utf-8")
+                        parsed = json.loads(decoded)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        # A malformed non-terminated final record is the interrupted
+                        # append. Keep all preceding committed records intact.
                         handle.truncate(offset)
-                else:
-                    with target.open("ab") as handle:
-                        handle.write(b"\n")
+                    else:
+                        if not isinstance(parsed, dict):
+                            handle.truncate(offset)
+                        else:
+                            handle.seek(0, os.SEEK_END)
+                            handle.write(b"\n")
     encoded = json.dumps(record, ensure_ascii=True, default=str).encode("utf-8") + b"\n"
     with target.open("ab") as handle:
         handle.write(encoded)
-
 
 def append_jsonl_record(
     path: str | Path, record: dict[str, Any], *, lock_held: bool = False
