@@ -73,17 +73,12 @@ def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monk
 
         def __init__(self, command, **kwargs):
             launches.append((command, kwargs))
-            self.stdout = io.StringIO("host output line\n")
+            self.stdout = io.StringIO("host output line\\n")
+            if len(launches) == 2:
+                stop_path.write_text("stop", encoding="ascii")
 
         def poll(self):
             return 1
-
-    original_append_log = agent_supervisor._append_log
-
-    def append_log(path, message):
-        original_append_log(path, message)
-        if "restarting in" in message:
-            stop_path.write_text("stop", encoding="ascii")
 
     real_thread = threading.Thread
     daemon_values = []
@@ -106,21 +101,74 @@ def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monk
 
     monkeypatch.setattr(agent_supervisor.threading, "Thread", TrackingThread)
     monkeypatch.setattr(agent_supervisor.subprocess, "Popen", ExitedProcess)
-    monkeypatch.setattr(agent_supervisor, "_append_log", append_log)
 
     run_supervisor(state_path)
 
-    assert len(launches) == 1
-    assert launches[0][0][1:4] == ["-u", "-m", "friday.services.agent_host"]
-    assert launches[0][1]["env"]["AGENT_TASKS_PATH"] == str(state_path.resolve())
+    assert len(launches) == 2
+    assert all(item[0][1:4] == ["-u", "-m", "friday.services.agent_host"] for item in launches)
+    assert all(item[1]["env"]["AGENT_TASKS_PATH"] == str(state_path.resolve()) for item in launches)
     log = (tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log").read_text()
+    assert log.count("Started agent host process 4321.") == 2
     assert "Agent host exited with code 1; restarting in 2s." in log
     assert "Supervisor stopped." in log
-    assert "host: host output line" in log
-    assert daemon_values == [False]
-    assert join_calls == [((), {})]
+    assert log.count("host: host output line") == 2
+    assert daemon_values == [False, False]
+    assert join_calls == [((), {}), ((), {})]
     assert not stop_path.exists()
 
+
+def test_supervisor_retries_spawn_failure_and_resets_backoff_after_healthy_run(tmp_path, monkeypatch):
+    state_path = tmp_path / "tasks.jsonl"
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    stop_path = Path(f"{state_path}.supervisor.stop")
+    attempts = []
+    clock = [0.0]
+    phase = {"value": "spawn-retry"}
+    started_at = {"value": 0.0}
+
+    class ExitedProcess:
+        pid = 4322
+
+        def __init__(self, command, **kwargs):
+            attempts.append((command, kwargs))
+            self.stdout = io.StringIO("host output line\\n")
+            self.returncode = None
+            started_at["value"] = clock[0]
+            phase["value"] = "host-running"
+
+        def poll(self):
+            if clock[0] - started_at["value"] >= 301:
+                self.returncode = 1
+                phase["value"] = "restart-backoff"
+            return self.returncode
+
+    def popen(command, **kwargs):
+        if not attempts:
+            attempts.append(("failed", None))
+            raise OSError("simulated spawn failure")
+        return ExitedProcess(command, **kwargs)
+
+    def fake_sleep(seconds):
+        if phase["value"] == "spawn-retry":
+            clock[0] += seconds
+        elif phase["value"] == "host-running":
+            clock[0] = started_at["value"] + 301
+        elif phase["value"] == "restart-backoff":
+            stop_path.write_text("stop", encoding="ascii")
+
+    monkeypatch.setattr(agent_supervisor.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(agent_supervisor.time, "sleep", fake_sleep)
+    monkeypatch.setattr(agent_supervisor.subprocess, "Popen", popen)
+
+    run_supervisor(state_path)
+
+    assert len(attempts) == 2
+    log = (tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log").read_text()
+    assert "Could not start agent host process (OSError: simulated spawn failure); retrying in 2s." in log
+    assert "Agent host exited with code 1; restarting in 2s." in log
+    assert "restarting in 4s." not in log
+    assert "Supervisor stopped." in log
+    assert not stop_path.exists()
 
 def test_supervisor_terminates_running_host_on_stop_request(tmp_path, monkeypatch):
     state_path = tmp_path / "tasks.jsonl"
