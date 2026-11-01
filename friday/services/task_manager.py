@@ -6,6 +6,9 @@ and control the same task. Execution remains owned by the existing processors.
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
+import os
+import tempfile
 import hashlib
 import threading
 import time
@@ -26,6 +29,8 @@ from .jsonl_store import (
 
 
 _MAX_EXECUTION_LOCK_SIDECARS = 63  # plus one shared registry sidecar
+_TASK_LOG_COMPACT_MIN_RECORDS = 256
+_TASK_LOG_COMPACT_RECORDS_PER_TASK = 4
 
 
 def _task_execution_lock_path(path: str | Path, task_id: str) -> Path:
@@ -186,6 +191,7 @@ class TaskManager:
         self._tasks: dict[str, Task] = {}
         self._lock = threading.RLock()
         self._process_lock_depth = threading.local()
+        self._record_count = 0
         with self._locked_state():
             pass
 
@@ -402,10 +408,64 @@ class TaskManager:
         row = asdict(task)
         row["status"] = task.status.value
         append_jsonl_record(self.path, row, lock_held=True)
+        self._record_count += 1
+        self._compact_if_needed()
+
+    def _compact_if_needed(self) -> None:
+        """Atomically replace old task events with one latest snapshot per task.
+
+        Task state is always refreshed while holding the JSONL sidecar lock, so
+        compaction can safely preserve the current cross-process state. Keeping
+        a bounded number of historical rows avoids rereading an ever-growing
+        append-only event log on every operation.
+        """
+        threshold = max(
+            _TASK_LOG_COMPACT_MIN_RECORDS,
+            len(self._tasks) * _TASK_LOG_COMPACT_RECORDS_PER_TASK,
+        )
+        if self._record_count < threshold:
+            return
+
+        temporary_path = None
+        descriptor = None
+        try:
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{self.path.name}.",
+                suffix=".tmp",
+                dir=self.path.parent,
+            )
+            temporary_path = Path(temporary_name)
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\\n") as handle:
+                descriptor = None
+                for current in self._tasks.values():
+                    snapshot = asdict(current)
+                    snapshot["status"] = current.status.value
+                    handle.write(json.dumps(snapshot, ensure_ascii=True) + "\\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, self.path)
+            self._record_count = len(self._tasks)
+        except OSError:
+            # Compaction is maintenance: the already-appended task update is
+            # durable, so a platform/file-lock failure must not fail the task.
+            return
+        finally:
+            if descriptor is not None:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
+            if temporary_path is not None:
+                try:
+                    temporary_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _load(self) -> None:
         self._tasks.clear()
+        self._record_count = 0
         for row in read_jsonl_records(self.path, lock_held=True):
+            self._record_count += 1
             row["status"] = TaskStatus(row["status"])
             row["steps"] = [TaskStep(**step) for step in row["steps"]]
             task = Task(**row)
