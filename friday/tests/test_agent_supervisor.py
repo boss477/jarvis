@@ -377,7 +377,7 @@ def test_supervisor_stream_keeps_draining_after_log_write_failure(tmp_path, monk
         raise OSError("disk is full")
 
     monkeypatch.setattr(agent_supervisor, "_append_log", fail_log)
-    stream = TrackingStream(b"first line\\nsecond line\\nthird line\\n")
+    stream = TrackingStream(b"first line\nsecond line\nthird line\n")
 
     agent_supervisor._stream_host_output(stream, tmp_path / "agent-supervisor.log")
 
