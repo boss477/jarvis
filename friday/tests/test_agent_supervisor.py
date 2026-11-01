@@ -343,7 +343,7 @@ def test_supervisor_log_rotates_and_bounds_total_size(tmp_path, monkeypatch):
     assert not log_path.with_name("agent-supervisor.log.3").exists()
 
 
-def test_supervisor_log_rotation_failure_is_best_effort(tmp_path, monkeypatch):
+def test_supervisor_log_rotation_failure_preserves_size_bound(tmp_path, monkeypatch):
     log_path = tmp_path / "agent-supervisor.log"
     monkeypatch.setattr(agent_supervisor, "_MAX_LOG_BYTES", 128)
     monkeypatch.setattr(agent_supervisor, "_MAX_LOG_MESSAGE_BYTES", 64)
@@ -356,7 +356,34 @@ def test_supervisor_log_rotation_failure_is_best_effort(tmp_path, monkeypatch):
 
     agent_supervisor._append_log(log_path, "record after rotation failure")
 
-    assert "record after rotation failure" in log_path.read_text(encoding="utf-8")
+    assert log_path.stat().st_size == 128
+    assert "record after rotation failure" not in log_path.read_text(encoding="utf-8")
+
+
+def test_supervisor_stream_keeps_draining_after_log_write_failure(tmp_path, monkeypatch):
+    class TrackingStream(io.BytesIO):
+        def __init__(self, value):
+            super().__init__(value)
+            self.read_calls = 0
+
+        def read1(self, size=-1):
+            self.read_calls += 1
+            return super().read1(size)
+
+    attempted = []
+
+    def fail_log(_path, message):
+        attempted.append(message)
+        raise OSError("disk is full")
+
+    monkeypatch.setattr(agent_supervisor, "_append_log", fail_log)
+    stream = TrackingStream(b"first line\\nsecond line\\nthird line\\n")
+
+    agent_supervisor._stream_host_output(stream, tmp_path / "agent-supervisor.log")
+
+    assert stream.closed
+    assert stream.read_calls >= 2
+    assert attempted == ["host: first line"]
 
 
 def test_supervisor_log_rotation_is_serialized_across_processes(tmp_path):

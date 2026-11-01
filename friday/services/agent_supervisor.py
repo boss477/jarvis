@@ -109,6 +109,14 @@ def _append_log(log_path: Path, text: str) -> None:
                 # Rotation is best-effort on Windows, where another process
                 # may briefly hold a backup open. Keep the active log writable.
                 pass
+        # A failed rotation must not let an already-full active log grow.
+        # If rotation succeeded, the active path is absent and starts at zero.
+        try:
+            active_size = log_path.stat().st_size
+        except FileNotFoundError:
+            active_size = 0
+        if active_size + len(record) > _MAX_LOG_BYTES:
+            return
         # Remove unexpected numeric backups too, so stray .3/.4 files cannot
         # defeat the configured total-size bound. Ignore non-numeric sidecars
         # such as the persistent .mutex lock file.
@@ -123,9 +131,22 @@ def _append_log(log_path: Path, text: str) -> None:
             handle.write(record)
 
 def _stream_host_output(stream, log_path: Path) -> None:
-    """Drain child output using available chunks and bounded log records."""
+    """Drain child output even when log writes fail, discarding unrecordable output."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     pending = ""
+    logging_enabled = True
+
+    def append_record(message: str) -> None:
+        nonlocal logging_enabled
+        if not logging_enabled:
+            return
+        try:
+            _append_log(log_path, message)
+        except (OSError, ValueError):
+            # Keep draining stdout: closing it early can make the child fail with
+            # BrokenPipeError while it is still writing startup diagnostics.
+            logging_enabled = False
+
     read_chunk = getattr(stream, "read1", None) or stream.read
     try:
         while True:
@@ -140,21 +161,21 @@ def _stream_host_output(stream, log_path: Path) -> None:
                 if newline >= 0 and newline <= _HOST_OUTPUT_RECORD_CHARS:
                     line = pending[:newline].rstrip("\r")
                     pending = pending[newline + 1:]
-                    _append_log(log_path, "host: " + line)
+                    append_record("host: " + line)
                     continue
                 if len(pending) > _HOST_OUTPUT_RECORD_CHARS:
                     part = pending[:_HOST_OUTPUT_RECORD_CHARS]
                     pending = pending[_HOST_OUTPUT_RECORD_CHARS:]
-                    _append_log(log_path, "host: " + part + " [continued]")
+                    append_record("host: " + part + " [continued]")
                     continue
                 break
         # Flush any incomplete UTF-8 sequence at EOF with replacement, rather
         # than losing buffered bytes from the final chunk.
         pending += decoder.decode(b"", final=True)
         if pending:
-            _append_log(log_path, "host: " + pending.rstrip("\r"))
+            append_record("host: " + pending.rstrip("\r"))
     except (OSError, ValueError) as exc:
-        _append_log(log_path, f"Could not read agent host output ({type(exc).__name__}).")
+        append_record(f"Could not read agent host output ({type(exc).__name__}).")
     finally:
         try:
             stream.close()
