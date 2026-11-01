@@ -79,8 +79,7 @@ def test_whatsapp_cloud_without_credentials_is_explicitly_unconfigured(monkeypat
     monkeypatch.delenv("WHATSAPP_PHONE_NUMBER_ID", raising=False)
     result = WhatsAppCloudAdapter().send_message("u1", "hello")
     assert isinstance(result, DeliveryResult) and not result.ok
-    assert isinstance(result, DeliveryResult) and not result.ok
-    assert "not configured" in result.detail.detail
+    assert "not configured" in result.detail
 
 def test_slack_events_parse_text():
     payload = {"event": {"type": "message", "channel": "C1", "text": "hello", "event_ts": "1"}}
