@@ -4,7 +4,8 @@ cd /d "%~dp0"
 uv run python -m friday.services.agent_host --check
 if errorlevel 1 (
     echo.
-    echo Setup is incomplete. Add the missing WhatsApp and local LLM settings to friday\.env.
+    echo Agent host readiness check failed. See the error above.
+    echo If it reports missing WhatsApp or local LLM settings, update friday\.env.
     echo See docs\PERSISTENT_AGENT.md for Windows setup instructions.
     pause
     exit /b 1
