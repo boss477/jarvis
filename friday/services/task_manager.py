@@ -435,12 +435,12 @@ class TaskManager:
                 dir=self.path.parent,
             )
             temporary_path = Path(temporary_name)
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\\n") as handle:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
                 descriptor = None
                 for current in self._tasks.values():
                     snapshot = asdict(current)
                     snapshot["status"] = current.status.value
-                    handle.write(json.dumps(snapshot, ensure_ascii=True) + "\\n")
+                    handle.write(json.dumps(snapshot, ensure_ascii=True) + "\n")
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temporary_path, self.path)
