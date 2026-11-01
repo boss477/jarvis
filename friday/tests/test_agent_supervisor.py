@@ -167,9 +167,52 @@ def test_supervisor_terminates_running_host_on_stop_request(tmp_path, monkeypatc
     assert events == ["terminate"]
     log = (tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log").read_text()
     assert "Stop requested; terminating agent host." in log
+    assert "Agent host stopped with code -15." in log
     assert "Supervisor stopped." in log
     assert not stop_path.exists()
 
+
+
+
+def test_supervisor_logs_host_stop_after_keyboard_interrupt(tmp_path, monkeypatch):
+    state_path = tmp_path / "tasks.jsonl"
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    events = []
+
+    class RunningProcess:
+        pid = 9877
+
+        def __init__(self, *_args, **_kwargs):
+            self.returncode = None
+            self.stdout = io.StringIO("")
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            events.append("terminate")
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            events.append("kill")
+            self.returncode = -9
+
+    def interrupt(_seconds):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(agent_supervisor.subprocess, "Popen", RunningProcess)
+    monkeypatch.setattr(agent_supervisor.time, "sleep", interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        run_supervisor(state_path)
+
+    log = (tmp_path / "local" / "Friday" / "logs" / "agent-supervisor.log").read_text()
+    assert events == ["terminate"]
+    assert "Supervisor interrupted; agent host stop requested." in log
+    assert "Agent host stopped with code -15." in log
 
 
 def test_supervisor_terminates_host_when_output_thread_start_fails(tmp_path, monkeypatch):
