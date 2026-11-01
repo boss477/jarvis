@@ -6,10 +6,22 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .communication_hub import CommunicationHub
-from .memory_store import MemoryStore
+from .communication_hub import CommunicationHub, DeliveryResultfrom .memory_store import MemoryStore
 from .orchestrator import StepPolicy, TaskOrchestrator
 from .workers import WorkerRegistry
+
+
+def _delivery_value_or_raise(result: Any, channel: str) -> str:
+    """Convert a provider result to text while preserving explicit failure state."""
+    if isinstance(result, DeliveryResult):
+        if not result.ok:
+            raise RuntimeError(result.detail or f"{channel} delivery failed")
+        return result.detail or result.message_id or "sent"
+    detail = str(result)
+    # Backward compatibility for older string-returning provider adapters.
+    if "not configured" in detail.lower():
+        raise RuntimeError(detail)
+    return detail
 
 
 def _parse_bool(value: Any) -> bool:
@@ -126,9 +138,7 @@ def register_agent_tools(orchestrator: TaskOrchestrator, hub: CommunicationHub,
     x_adapter = XAdapter()
     def x_post(args):
         result = x_adapter.create_post(str(args["text"]))
-        if "not configured" in result.lower():
-            raise RuntimeError(result)
-        return result
+        return _delivery_value_or_raise(result, "X post")
     orchestrator.register_tool("x_post", StepPolicy("communication", requires_approval=True),
         x_post)
     orchestrator.register_tool("remember", StepPolicy("memory"), remember)
