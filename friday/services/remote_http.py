@@ -11,10 +11,22 @@ import re
 import time
 from .channel_adapters import (EmailAdapter, InstagramAdapter, SlackAdapter, TeamsWebhookAdapter,
                                TelegramAdapter, WhatsAppCloudAdapter, XAdapter)
-from .communication_hub import CommunicationMessage
+from .communication_hub import CommunicationMessage, DeliveryResult
 
 logger = logging.getLogger(__name__)
 MAX_WEBHOOK_BODY_BYTES = 1_048_576
+
+
+def _delivery_outcome(delivery: object) -> tuple[str, bool]:
+    """Normalize provider results without parsing human-readable error text."""
+    if isinstance(delivery, DeliveryResult):
+        detail = delivery.detail or delivery.message_id or (
+            "sent" if delivery.ok else "delivery failed"
+        )
+        return detail, delivery.ok
+    detail = str(delivery)
+    # Backward compatibility for provider adapters that still return strings.
+    return detail, "not configured" not in detail.lower()
 
 
 def _normalise_phone_number(value: str) -> str:
@@ -146,12 +158,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
                                 logger.warning("delivery failure persistence failed (%s)",
                                                type(exc).__name__)
                         raise
-                    result["delivery"] = delivery
+                    delivery_detail, delivered = _delivery_outcome(delivery)
+                    result["delivery"] = delivery_detail
                     if self.gateway.delivery_handler:
                         try:
                             self.gateway.delivery_handler(
-                                delivery_message,
-                                str(delivery), "not configured" not in str(delivery).lower(),
+                                delivery_message, delivery_detail, delivered,
                             )
                         except Exception as exc:
                             logger.warning("delivery status persistence failed (%s)",
