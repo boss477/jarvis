@@ -19,6 +19,7 @@ _LOG_BACKUP_COUNT = 2
 _MAX_LOG_MESSAGE_BYTES = 8192
 _HOST_OUTPUT_READ_CHARS = 2048
 _HOST_OUTPUT_RECORD_CHARS = 1800
+_HEALTHY_HOST_UPTIME_SECONDS = 300
 _LOG_LOCK = threading.Lock()
 
 
@@ -229,6 +230,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     creationflags=creation_flags, env=child_env,
                 )
+                host_started_at = time.monotonic()
                 output_stream = getattr(process, "stdout", None)
                 if output_stream is not None:
                     output_thread = threading.Thread(
@@ -252,6 +254,17 @@ def run_supervisor(state_path: Path | None = None) -> None:
                     time.sleep(0.5)
                 exit_code = process.poll()
 
+            except OSError as exc:
+                _append_log(
+                    log_path,
+                    f"Could not start agent host process ({type(exc).__name__}: {exc}); "
+                    f"retrying in {delay}s.",
+                )
+                end = time.monotonic() + delay
+                while time.monotonic() < end and not stop_path.exists():
+                    time.sleep(min(0.5, max(0.0, end - time.monotonic())))
+                delay = min(delay * 2, 60)
+                continue
             except KeyboardInterrupt:
                 stop_requested = True
                 _append_log(log_path, "Supervisor interrupted; agent host stop requested.")
@@ -283,6 +296,8 @@ def run_supervisor(state_path: Path | None = None) -> None:
 
             if stop_path.exists():
                 break
+            if time.monotonic() - host_started_at >= _HEALTHY_HOST_UPTIME_SECONDS:
+                delay = 2
             _append_log(log_path, f"Agent host exited with code {exit_code}; restarting in {delay}s.")
             end = time.monotonic() + delay
             while time.monotonic() < end and not stop_path.exists():
