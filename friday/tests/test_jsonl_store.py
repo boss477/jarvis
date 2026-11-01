@@ -1,4 +1,5 @@
 import errno
+from datetime import datetime, timezone
 from threading import Event, Thread
 from pathlib import Path
 
@@ -144,3 +145,12 @@ def test_append_to_terminated_file_does_not_read_the_entire_history(tmp_path, mo
     jsonl_store.append_jsonl_record(path, {"id": "new"})
     monkeypatch.setattr(Path, "read_bytes", original_read_bytes)
     assert path.read_text(encoding="utf-8").splitlines()[-1] == '{"id": "new"}'
+
+
+def test_append_rejects_non_json_values_instead_of_stringifying(tmp_path):
+    path = tmp_path / "history.jsonl"
+    with pytest.raises(TypeError):
+        jsonl_store.append_jsonl_record(
+            path, {"created_at": datetime.now(timezone.utc)}
+        )
+    assert not path.exists()
