@@ -29,7 +29,7 @@ def generate_voice_reply(opener: str, turns: list[tuple[str, str]], speech: str)
             "cannot do that on this call. When the caller clearly ends the call or the purpose "
             "is complete, give a brief goodbye and set end_call=true. Otherwise set it false. "
             "Return only a JSON object with string field reply and boolean field end_call.\n\n"
-            f"Approved call purpose/opener: {opener[:2000]}"
+            f"Approved call purpose/opener: {opener[:1200]}"
         ),
     }]
     for role, content in turns[-20:]:
