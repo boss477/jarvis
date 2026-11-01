@@ -84,6 +84,11 @@ def test_poll_delivery_retry_reuses_cached_reply_after_restart(tmp_path):
     assert retry[0].delivery.ok
     assert adapter.sent == [("c1", "answer"), ("c1", "answer")]
     assert calls == ["wamid.poll-retry"]
+    outbound_replies = [
+        message for message in recovered_agent.recent_history("whatsapp", "c1")
+        if message.sender_id == "agent" and message.text == "answer"
+    ]
+    assert len(outbound_replies) == 1
 
     adapter.inbox = [inbound]
     assert recovered_agent.process_once() == []
