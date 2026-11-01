@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 from .task_commands import TaskCommandService
+from .communication_hub import DeliveryResult
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +211,8 @@ class RemoteGateway:
 class UnconfiguredChannel:
     """Explicit placeholder until a real provider credential is configured."""
     def __init__(self, name: str): self.name = name
-    def send(self, recipient: str, text: str):
+    def send(self, recipient: str, text: str) -> DeliveryResult:
         # Delivery state is data, not a phrase that callers must parse.
-        from .communication_hub import DeliveryResult
         return DeliveryResult(
             self.name,
             recipient,
