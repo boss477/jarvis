@@ -14,12 +14,13 @@ import ssl
 from email.message import EmailMessage
 from urllib.parse import urlsplit
 from .remote_gateway import IncomingMessage, UnconfiguredChannel
+from .communication_hub import DeliveryResult
 
 @dataclass
 class ChannelAdapter:
     name: str
     def parse(self, payload: dict[str, Any]) -> list[IncomingMessage]: raise NotImplementedError
-    def sender(self, recipient: str, text: str) -> Any: return UnconfiguredChannel(self.name).send(recipient, text)
+    def sender(self, recipient: str, text: str) -> str | DeliveryResult: return UnconfiguredChannel(self.name).send(recipient, text)
     def poll(self) -> list: return []
 
 class WhatsAppCloudAdapter(ChannelAdapter):
@@ -104,7 +105,7 @@ class WhatsAppCloudAdapter(ChannelAdapter):
                             str(message.get("id", "")), sender, metadata))
         return messages
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         """Send a text reply through WhatsApp Cloud API when configured."""
         token = os.getenv("WHATSAPP_ACCESS_TOKEN", "")
         phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
@@ -121,7 +122,7 @@ class WhatsAppCloudAdapter(ChannelAdapter):
         return f"sent:{message_id}" if message_id else "sent"
 
     def send_interactive_message(self, recipient: str, text: str,
-                                 buttons: list[dict[str, str]]) -> str:
+                                 buttons: list[dict[str, str]]) -> str | DeliveryResult:
         """Send up to three WhatsApp reply buttons with opaque action IDs."""
         if len(text) > 1024:
             raise ValueError("WhatsApp interactive message body exceeds 1024 characters")
@@ -168,7 +169,7 @@ class WhatsAppWebAdapter(ChannelAdapter):
     def __init__(self):
         super().__init__("whatsapp")
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         from friday.mcp_server.chat import whatsapp_send
 
         result = whatsapp_send(recipient, text)
@@ -187,7 +188,7 @@ class TelegramAdapter(ChannelAdapter):
         return [IncomingMessage("telegram", str(sender), text,
                                 str(message.get("message_id", "")), chat_id)]
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         if not token:
             return UnconfiguredChannel(self.name).send(recipient, text)
@@ -214,7 +215,7 @@ class SlackAdapter(ChannelAdapter):
         return [IncomingMessage("slack", str(event.get("user", "")), text,
                                  str(event.get("event_ts", "")), str(event.get("channel", "")))]
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         token = os.getenv("SLACK_BOT_TOKEN", "")
         if not token:
             return UnconfiguredChannel(self.name).send(recipient, text)
@@ -235,7 +236,7 @@ class DiscordAdapter(ChannelAdapter):
 
     def __init__(self): super().__init__("discord")
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         if not re.fullmatch(r"[0-9]{17,20}", recipient):
             raise ValueError("Discord channel ID must be a 17- to 20-digit numeric snowflake")
         token = os.getenv("DISCORD_BOT_TOKEN", "")
@@ -262,7 +263,7 @@ class TeamsWebhookAdapter(ChannelAdapter):
         sender = str(payload.get("from", {}).get("id", ""))
         return [IncomingMessage("teams", sender, text, str(payload.get("id", "")), conversation)]
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         url = os.getenv("TEAMS_WEBHOOK_URL", "")
         if not url:
             return UnconfiguredChannel(self.name).send(recipient, text)
@@ -288,7 +289,7 @@ class EmailAdapter(ChannelAdapter):
                                 str(payload.get("message_id", payload.get("id", ""))),
                                 sender)]
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         host = os.getenv("SMTP_HOST", "")
         username = os.getenv("SMTP_USERNAME", "")
         password = os.getenv("SMTP_PASSWORD", "")
@@ -329,7 +330,7 @@ class XAdapter(ChannelAdapter):
         author = str(data.get("author_id", ""))
         return [IncomingMessage("x", author, text, str(data.get("id", "")), author)]
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         token = os.getenv("X_USER_ACCESS_TOKEN", "")
         if not token:
             return UnconfiguredChannel(self.name).send(recipient, text)
@@ -344,7 +345,7 @@ class XAdapter(ChannelAdapter):
         data = response.json().get("data", {})
         return str(data.get("dm_event_id", data.get("id", "sent")))
 
-    def create_post(self, text: str) -> str:
+    def create_post(self, text: str) -> str | DeliveryResult:
         token = os.getenv("X_USER_ACCESS_TOKEN", "")
         if not token:
             return UnconfiguredChannel(self.name).send("public", text)
@@ -365,7 +366,7 @@ class XPublicPostAdapter(ChannelAdapter):
     def parse(self, _payload):
         return []
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         if recipient.strip().lower() != "public":
             raise ValueError("X public posts require recipient 'public'")
         return self._x.create_post(text)
@@ -379,7 +380,7 @@ class LinkedInPublicPostAdapter(ChannelAdapter):
     def parse(self, _payload):
         return []
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         token = os.getenv("LINKEDIN_ACCESS_TOKEN", "")
         author = os.getenv("LINKEDIN_AUTHOR_URN", "")
         if not token or not author:
@@ -438,7 +439,7 @@ class InstagramAdapter(ChannelAdapter):
                         str(message.get("mid", "")), sender))
         return messages
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         token = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
         account_id = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "")
         if not token or not account_id:
@@ -462,7 +463,7 @@ class InstagramPublicPostAdapter(ChannelAdapter):
     def parse(self, _payload):
         return []
 
-    def send_message(self, media_url: str, caption: str) -> str:
+    def send_message(self, media_url: str, caption: str) -> str | DeliveryResult:
         token = os.getenv("INSTAGRAM_ACCESS_TOKEN", "")
         account_id = os.getenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "")
         if not token or not account_id:
@@ -505,7 +506,7 @@ class TwilioVoiceAdapter(ChannelAdapter):
     def parse(self, payload):
         return []
 
-    def send_message(self, recipient: str, text: str) -> str:
+    def send_message(self, recipient: str, text: str) -> str | DeliveryResult:
         recipient = recipient.strip()
         text = text.strip()
         if not re.fullmatch(r"\+[1-9]\d{7,14}", recipient):
