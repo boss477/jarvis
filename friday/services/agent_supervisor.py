@@ -134,18 +134,14 @@ def _stream_host_output(stream, log_path: Path) -> None:
     """Drain child output even when log writes fail, discarding unrecordable output."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     pending = ""
-    logging_enabled = True
 
     def append_record(message: str) -> None:
-        nonlocal logging_enabled
-        if not logging_enabled:
-            return
         try:
             _append_log(log_path, message)
         except (OSError, ValueError):
-            # Keep draining stdout: closing it early can make the child fail with
-            # BrokenPipeError while it is still writing startup diagnostics.
-            logging_enabled = False
+            # Drop only this record. A transient lock or disk error must not
+            # disable diagnostics for later records from the same child.
+            return
 
     read_chunk = getattr(stream, "read1", None) or stream.read
     try:

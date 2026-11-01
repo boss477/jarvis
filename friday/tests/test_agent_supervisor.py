@@ -371,19 +371,27 @@ def test_supervisor_stream_keeps_draining_after_log_write_failure(tmp_path, monk
             return super().read1(size)
 
     attempted = []
+    written = []
 
-    def fail_log(_path, message):
+    def fail_first_log(_path, message):
         attempted.append(message)
-        raise OSError("disk is full")
+        if len(attempted) == 1:
+            raise OSError("temporarily locked")
+        written.append(message)
 
-    monkeypatch.setattr(agent_supervisor, "_append_log", fail_log)
+    monkeypatch.setattr(agent_supervisor, "_append_log", fail_first_log)
     stream = TrackingStream(b"first line\nsecond line\nthird line\n")
 
     agent_supervisor._stream_host_output(stream, tmp_path / "agent-supervisor.log")
 
     assert stream.closed
     assert stream.read_calls >= 2
-    assert attempted == ["host: first line"]
+    assert attempted == [
+        "host: first line",
+        "host: second line",
+        "host: third line",
+    ]
+    assert written == ["host: second line", "host: third line"]
 
 
 def test_supervisor_log_rotation_is_serialized_across_processes(tmp_path):
