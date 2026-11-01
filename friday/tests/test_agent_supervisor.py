@@ -248,10 +248,11 @@ def test_supervisor_log_rotation_failure_is_best_effort(tmp_path, monkeypatch):
 def test_supervisor_log_rotation_is_serialized_across_processes(tmp_path):
     log_path = tmp_path / "agent-supervisor.log"
     context = multiprocessing.get_context("spawn")
+    max_bytes = 512
     processes = [
         context.Process(
             target=_append_log_records_in_process,
-            args=(str(log_path), f"worker-{worker}", 10, 512),
+            args=(str(log_path), f"worker-{worker}", 10, max_bytes),
         )
         for worker in range(2)
     ]
@@ -275,8 +276,9 @@ def test_supervisor_log_rotation_is_serialized_across_processes(tmp_path):
     ]
     assert log_path.with_name(f"{log_path.name}.1").exists()
     assert len(files) <= agent_supervisor._LOG_BACKUP_COUNT + 1
+    assert all(path.stat().st_size <= max_bytes for path in files)
     assert sum(path.stat().st_size for path in files) <= (
-        agent_supervisor._MAX_LOG_BYTES * (agent_supervisor._LOG_BACKUP_COUNT + 1)
+        max_bytes * (agent_supervisor._LOG_BACKUP_COUNT + 1)
     )
     assert len(lines) == 20
     assert sum("worker-0-" in line for line in lines) == 10
