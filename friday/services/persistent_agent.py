@@ -5,7 +5,14 @@ import threading
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from .agent_controller import TaskAgentController
+    from .memory_store import MemoryStore
+    from .orchestrator import TaskOrchestrator
+    from .remote_gateway import RemoteGateway
+    from .task_manager import TaskManager
 
 from .action_agent import AgentReply, PersistentActionAgent
 from .communication_hub import CommunicationHub, CommunicationMessage
@@ -22,6 +29,14 @@ class AgentRuntimeConfig:
 
 class PersistentAgentRuntime:
     """Owns the lifecycle of a continuously running communication agent."""
+
+    # These services are attached by build_persistent_agent after construction.
+    # Declare them here so the factory-built runtime has a typed public surface.
+    tasks: TaskManager
+    memory: MemoryStore
+    orchestrator: TaskOrchestrator
+    controller: TaskAgentController
+    webhook_gateway: RemoteGateway
 
     def __init__(self, hub: CommunicationHub,
                  handler: Callable[[CommunicationMessage], str],
