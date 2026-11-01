@@ -245,12 +245,14 @@ def test_supervisor_log_rotation_failure_is_best_effort(tmp_path, monkeypatch):
     assert "record after rotation failure" in log_path.read_text(encoding="utf-8")
 
 
-def test_supervisor_log_writes_are_serialized_across_processes(tmp_path):
+def test_supervisor_log_rotation_is_serialized_across_processes(tmp_path):
     log_path = tmp_path / "agent-supervisor.log"
     context = multiprocessing.get_context("spawn")
     processes = [
-        context.Process(target=_append_log_records_in_process,
-                        args=(str(log_path), f"worker-{worker}", 30))
+        context.Process(
+            target=_append_log_records_in_process,
+            args=(str(log_path), f"worker-{worker}", 10, 512),
+        )
         for worker in range(2)
     ]
 
@@ -261,10 +263,24 @@ def test_supervisor_log_writes_are_serialized_across_processes(tmp_path):
 
     assert all(not process.is_alive() for process in processes)
     assert all(process.exitcode == 0 for process in processes)
-    lines = log_path.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 60
-    assert sum("worker-0-" in line for line in lines) == 30
-    assert sum("worker-1-" in line for line in lines) == 30
+    backups = sorted(
+        path for path in log_path.parent.glob(f"{log_path.name}.*")
+        if path.name.rsplit(".", 1)[-1].isdigit()
+    )
+    files = [log_path, *backups]
+    lines = [
+        line
+        for path in files
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert log_path.with_name(f"{log_path.name}.1").exists()
+    assert len(files) <= agent_supervisor._LOG_BACKUP_COUNT + 1
+    assert sum(path.stat().st_size for path in files) <= (
+        agent_supervisor._MAX_LOG_BYTES * (agent_supervisor._LOG_BACKUP_COUNT + 1)
+    )
+    assert len(lines) == 20
+    assert sum("worker-0-" in line for line in lines) == 10
+    assert sum("worker-1-" in line for line in lines) == 10
 
 
 def test_supervisor_stream_splits_long_unterminated_output(tmp_path, monkeypatch):
