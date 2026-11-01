@@ -203,6 +203,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
             process = None
             output_thread = None
             output_thread_started = False
+            stop_requested = False
             try:
                 child_env = os.environ.copy()
                 child_env["AGENT_TASKS_PATH"] = str(state_path.resolve())
@@ -222,6 +223,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
                 _append_log(log_path, f"Started agent host process {process.pid}.")
                 while process.poll() is None:
                     if stop_path.exists():
+                        stop_requested = True
                         _append_log(log_path, "Stop requested; terminating agent host.")
                         process.terminate()
                         try:
@@ -234,6 +236,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
                 exit_code = process.poll()
 
             except KeyboardInterrupt:
+                stop_requested = True
                 _append_log(log_path, "Supervisor interrupted; agent host stop requested.")
                 raise
             finally:
@@ -254,6 +257,12 @@ def run_supervisor(state_path: Path | None = None) -> None:
                     output_stream = getattr(process, "stdout", None)
                     if output_stream is not None:
                         output_stream.close()
+                if stop_requested and process is not None:
+                    stopped_code = process.poll()
+                    if stopped_code is None:
+                        _append_log(log_path, "Agent host did not stop; process remains active.")
+                    else:
+                        _append_log(log_path, f"Agent host stopped with code {stopped_code}.")
 
             if stop_path.exists():
                 break
