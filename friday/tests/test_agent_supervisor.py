@@ -10,7 +10,9 @@ from friday.services.agent_host import AgentHostLock
 from friday.services.agent_supervisor import request_stop, run_supervisor
 
 
-def _append_log_records_in_process(path, prefix, count):
+def _append_log_records_in_process(path, prefix, count, max_bytes=None):
+    if max_bytes is not None:
+        agent_supervisor._MAX_LOG_BYTES = max_bytes
     for index in range(count):
         agent_supervisor._append_log(Path(path), f"{prefix}-{index}")
 
