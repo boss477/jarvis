@@ -229,7 +229,7 @@ def _append_jsonl_record_unlocked(target: Path, record: dict[str, Any]) -> None:
                         else:
                             handle.seek(0, os.SEEK_END)
                             handle.write(b"\n")
-    encoded = json.dumps(record, ensure_ascii=True, default=str).encode("utf-8") + b"\n"
+    encoded = json.dumps(record, ensure_ascii=True).encode("utf-8") + b"\n"
     with target.open("ab") as handle:
         handle.write(encoded)
 
