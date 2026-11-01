@@ -64,3 +64,29 @@ def test_generate_voice_reply_uses_fallback_for_null_model_content(monkeypatch):
         "I'm sorry, could you please repeat that?",
         False,
     )
+
+
+def test_generate_voice_reply_limits_opener_to_approved_prompt_length(monkeypatch):
+    from friday.services.agent_planner import generate_voice_reply
+
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": '{"reply":"hello","end_call":false}'}}]}
+
+    def fake_post(_url, **kwargs):
+        captured.update(kwargs)
+        return Response()
+
+    monkeypatch.setattr("friday.services.agent_planner.httpx.post", fake_post)
+    opener = "A" * 1500
+
+    generate_voice_reply(opener, [], "hello")
+
+    system = captured["json"]["messages"][0]["content"]
+    assert system.endswith("Approved call purpose/opener: " + opener[:1200])
+    assert opener[1200:] not in system
