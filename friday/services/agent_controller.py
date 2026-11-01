@@ -195,6 +195,12 @@ class TaskAgentController:
                 reply = user_replies[-1]
                 if (_EXTERNAL_COMPLETION_CLAIM.search(reply)
                         and not self._claim_matches_completed_action(task, reply)):
+                    partial = self._partial_delivery_summary(task)
+                    if partial:
+                        return (
+                            "The request was only partially completed: "
+                            f"{partial}. Verify which destinations received it before retrying."
+                        )
                     return ("I haven't taken an external action. Tell me what you'd like done; "
                             "actions to other people or services will ask for approval first.")
                 return reply
@@ -260,6 +266,23 @@ class TaskAgentController:
     @staticmethod
     def _single_line(value) -> str:
         return " ".join(str(value).split())[:240]
+
+    def _partial_delivery_summary(self, task) -> str:
+        """Describe confirmed partial compose delivery without claiming no action occurred."""
+        for step in task.steps:
+            if step.tool != "compose_send" or step.status != "completed" or not step.result:
+                continue
+            try:
+                payload = json.loads(step.result)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            outcomes = payload.get("results", []) if isinstance(payload, dict) else []
+            if not isinstance(outcomes, list) or not outcomes:
+                continue
+            sent = sum(1 for item in outcomes if isinstance(item, dict) and item.get("ok"))
+            if 0 < sent < len(outcomes):
+                return self._format_step_result(step)
+        return ""
 
     def _claim_matches_completed_action(self, task, reply: str) -> bool:
         claim = _EXTERNAL_COMPLETION_CLAIM.search(reply)
