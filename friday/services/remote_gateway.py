@@ -210,5 +210,12 @@ class RemoteGateway:
 class UnconfiguredChannel:
     """Explicit placeholder until a real provider credential is configured."""
     def __init__(self, name: str): self.name = name
-    def send(self, recipient: str, text: str) -> str:
-        return f"{self.name} is not configured; message not sent."
+    def send(self, recipient: str, text: str):
+        # Delivery state is data, not a phrase that callers must parse.
+        from .communication_hub import DeliveryResult
+        return DeliveryResult(
+            self.name,
+            recipient,
+            False,
+            detail=f"{self.name} is not configured; message not sent.",
+        )
