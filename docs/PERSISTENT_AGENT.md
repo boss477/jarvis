@@ -119,12 +119,14 @@ check passes, start the host with `run_jarvis_agent_host.bat` and check
 `http://127.0.0.1:8767/healthz` locally. Install the optional Windows sign-in
 supervisor only after a successful manual start and local health check.
 
-The Windows launcher runs the same readiness check before starting and pauses
-with a setup hint when required WhatsApp or local-model settings are missing.
-Windows inbound setup is not complete until the five WhatsApp inbound values
-above are present, a local OpenAI-compatible model endpoint is reachable, and
-Meta's public HTTPS webhook has been configured. Until then, the launcher exits
-without starting the persistent host. Android setup is not part of this flow.
+The Windows launcher runs the same local readiness check before starting
+and pauses with a setup hint when required WhatsApp credentials or the local
+model are missing. This check cannot verify that Meta's public HTTPS webhook
+has been registered or that Cloudflare Tunnel is routing it correctly. Treat
+webhook registration and public ingress as separate inbound prerequisites: the
+host can start after the local check passes, but inbound WhatsApp messages will
+not arrive until the callback is configured and reachable. Android setup is
+not part of this flow.
 
 Meta's setup UI may change, but the required assets are a Meta app with the
 WhatsApp product, a WhatsApp Business Account/phone number, the Phone Number ID,
