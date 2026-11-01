@@ -73,7 +73,7 @@ def test_supervisor_restarts_host_after_exit_and_stops_on_request(tmp_path, monk
 
         def __init__(self, command, **kwargs):
             launches.append((command, kwargs))
-            self.stdout = io.StringIO("host output line\\n")
+            self.stdout = io.StringIO("host output line\n")
             if len(launches) == 2:
                 stop_path.write_text("stop", encoding="ascii")
 
@@ -131,7 +131,7 @@ def test_supervisor_retries_spawn_failure_and_resets_backoff_after_healthy_run(t
 
         def __init__(self, command, **kwargs):
             attempts.append((command, kwargs))
-            self.stdout = io.StringIO("host output line\\n")
+            self.stdout = io.StringIO("host output line\n")
             self.returncode = None
             started_at["value"] = clock[0]
             phase["value"] = "host-running"
