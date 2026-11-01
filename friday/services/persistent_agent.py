@@ -78,8 +78,8 @@ class PersistentAgentRuntime:
             except Exception as exc:  # keep the companion alive through provider outages
                 self._errors += 1
                 self.last_error = str(exc)
-                logger.warning("agent worker cycle failed (%s); consecutive failures=%d",
-                               type(exc).__name__, self._errors)
+                logger.warning("agent worker cycle failed (%s: %s); consecutive failures=%d",
+                               type(exc).__name__, exc, self._errors)
                 if self._errors >= self.config.max_consecutive_errors:
                     exponent = self._errors - self.config.max_consecutive_errors + 1
                     wait_seconds = min(
