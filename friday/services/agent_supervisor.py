@@ -190,6 +190,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
             creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             process = None
             output_thread = None
+            output_thread_started = False
             try:
                 child_env = os.environ.copy()
                 child_env["AGENT_TASKS_PATH"] = str(state_path.resolve())
@@ -205,6 +206,7 @@ def run_supervisor(state_path: Path | None = None) -> None:
                         name="agent-host-log", daemon=False,
                     )
                     output_thread.start()
+                    output_thread_started = True
                 _append_log(log_path, f"Started agent host process {process.pid}.")
                 while process.poll() is None:
                     if stop_path.exists():
@@ -218,21 +220,28 @@ def run_supervisor(state_path: Path | None = None) -> None:
                         break
                     time.sleep(0.5)
                 exit_code = process.poll()
-                if output_thread is not None:
-                    output_thread.join()
 
             except KeyboardInterrupt:
+                _append_log(log_path, "Supervisor interrupted; agent host stop requested.")
+                raise
+            finally:
+                # Any exception after Popen must not leave an unsupervised host.
                 if process is not None and process.poll() is None:
-                    process.terminate()
+                    try:
+                        process.terminate()
+                    except OSError:
+                        pass
                     try:
                         process.wait(timeout=10)
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait(timeout=5)
-                if output_thread is not None:
+                if output_thread is not None and output_thread_started:
                     output_thread.join()
-                _append_log(log_path, "Supervisor interrupted; agent host stopped.")
-                raise
+                elif process is not None:
+                    output_stream = getattr(process, "stdout", None)
+                    if output_stream is not None:
+                        output_stream.close()
 
             if stop_path.exists():
                 break
