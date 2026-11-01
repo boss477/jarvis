@@ -238,6 +238,8 @@ def test_posted_claim_requires_matching_successful_public_service(tmp_path):
     assert not controller._claim_matches_completed_action(task, "I posted the LinkedIn update.")
     assert not controller._claim_matches_completed_action(task, "I posted on X and LinkedIn.")
     assert not controller._claim_matches_completed_action(task, "I posted on Facebook.")
+    assert not controller._claim_matches_completed_action(task, "I posted the announcement on x-private.")
+    assert not controller._claim_matches_completed_action(task, "I posted the announcement on twitter-like.")
 
 
 def test_posted_claim_scopes_platforms_to_the_claim_clause_and_rejects_unknown_services(tmp_path):
