@@ -272,7 +272,7 @@ class TaskAgentController:
         if action == "posted":
             public_channels = {"x_public", "linkedin_public", "instagram_public"}
             channel_patterns = {
-                "x_public": r"\b(?:x|twitter)\b",
+                "x_public": r"(?<![\w-])(?:x|twitter)(?![\w-])",
                 "linkedin_public": r"\blinkedin\b",
                 "instagram_public": r"\binstagram\b",
             }
