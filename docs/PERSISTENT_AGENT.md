@@ -226,8 +226,11 @@ This creates one minimized shortcut in your user Startup folder; it does not
 run until the next sign-in. A single-instance supervisor writes host output to
 `%LOCALAPPDATA%\Friday\logs\agent-supervisor.log` and restarts an exited host
 with bounded backoff. Pass `-Remove` to request supervisor stop and remove that
-exact shortcut. Stopping during an active action may leave that task marked
-uncertain; it will not be replayed automatically. The sign-in shortcut starts
+exact shortcut. On Windows, the supervisor stops the child host by terminating
+its process; Python cleanup handlers are not guaranteed to run. If a task step
+was in flight, the next host start marks its outcome uncertain and never replays
+it automatically. Check `/pending` or `/check <id>` and verify the destination
+before creating a retry. The sign-in shortcut starts
 only the agent host; it does not start the WhatsApp proxy or Cloudflare Tunnel.
 Start those separately before testing inbound WhatsApp webhooks, or configure
 them as persistent services if they must survive sign-in or reboot. The host
