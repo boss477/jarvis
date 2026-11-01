@@ -109,11 +109,30 @@ class PersistentActionAgent:
             elif dedupe_key:
                 self._processing_message_ids.add(dedupe_key)
         if duplicate_reply is not None:
-            already_delivered = self._delivery_results.get(dedupe_key, False)
-            if deliver or already_delivered:
+            with self._history_lock:
+                already_delivered = self._delivery_results.get(dedupe_key, False)
+            if already_delivered:
                 return AgentReply(message, "", DeliveryResult(
                     message.channel, message.conversation_id, True,
-                    detail=("duplicate ignored" if deliver else "duplicate already delivered")))
+                    detail="duplicate already delivered"))
+            if deliver:
+                if not duplicate_reply:
+                    return AgentReply(message, "", DeliveryResult(
+                        message.channel, message.conversation_id, True,
+                        detail="duplicate ignored"))
+                if not self.claim_delivery(message):
+                    return AgentReply(message, "", DeliveryResult(
+                        message.channel, message.conversation_id, False,
+                        detail="duplicate delivery already in progress"))
+                delivery = self.hub.send(message.channel, message.conversation_id, duplicate_reply)
+                self._remember(key, CommunicationMessage(
+                    channel=message.channel, conversation_id=message.conversation_id,
+                    sender_id="agent", text=duplicate_reply, message_id=delivery.message_id,
+                    metadata={"direction": "outbound", "delivered": delivery.ok,
+                              "detail": delivery.detail, "retry": True},
+                ))
+                self.record_delivery(message, delivery.detail, delivery.ok)
+                return AgentReply(message, duplicate_reply, delivery)
             return AgentReply(message, duplicate_reply, DeliveryResult(
                 message.channel, message.conversation_id, True,
                 detail="duplicate; cached reply available for webhook redelivery"))
@@ -122,10 +141,19 @@ class PersistentActionAgent:
         try:
             self._remember(key, message)
             response = self.handler(message)
-            delivery = (self.hub.send(message.channel, message.conversation_id, response)
-                        if deliver and response else DeliveryResult(
-                            message.channel, message.conversation_id, True,
-                            detail="delivery pending webhook" if response else "no reply"))
+            delivery_claimed = False
+            if deliver and response:
+                delivery_claimed = not dedupe_key or self.claim_delivery(message)
+                if delivery_claimed:
+                    delivery = self.hub.send(message.channel, message.conversation_id, response)
+                else:
+                    delivery = DeliveryResult(
+                        message.channel, message.conversation_id, False,
+                        detail="duplicate delivery already in progress")
+            else:
+                delivery = DeliveryResult(
+                    message.channel, message.conversation_id, True,
+                    detail="delivery pending webhook" if response else "no reply")
             if response:
                 reply_message = CommunicationMessage(
                     channel=message.channel, conversation_id=message.conversation_id,
@@ -145,6 +173,8 @@ class PersistentActionAgent:
                 with self._history_lock:
                     self._seen_message_ids.add(dedupe_key)
                     self._cached_replies[dedupe_key] = response
+                if deliver and response and delivery_claimed:
+                    self.record_delivery(message, delivery.detail, delivery.ok)
             return AgentReply(message, response, delivery)
         finally:
             if dedupe_key:
