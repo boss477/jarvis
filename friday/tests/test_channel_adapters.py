@@ -272,9 +272,32 @@ def test_telegram_update_parses_text():
     message = TelegramAdapter().parse({"message": {"message_id": 2, "from": {"id": 7}, "text": "hello"}})[0]
     assert message.sender_id == "7" and message.text == "hello"
 
-def test_non_text_payloads_are_ignored():
+def test_empty_payloads_are_ignored():
     assert WhatsAppCloudAdapter().parse({"entry": []}) == []
     assert TelegramAdapter().parse({"message": {}}) == []
+
+
+def test_whatsapp_media_payload_is_reported_as_unavailable():
+    messages = WhatsAppCloudAdapter().parse({
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "messages": [{
+                        "from": "15550000000",
+                        "id": "wamid.media",
+                        "type": "image",
+                        "image": {"id": "media-1", "caption": "Please review this photo."},
+                    }]
+                }
+            }]
+        }]
+    })
+
+    assert len(messages) == 1
+    assert messages[0].text == (
+        "WhatsApp photo received; its contents are not available to this agent. "
+        "Caption: Please review this photo."
+    )
 
 
 class _FakeVoiceSessions:
