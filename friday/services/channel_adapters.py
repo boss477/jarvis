@@ -19,7 +19,7 @@ from .remote_gateway import IncomingMessage, UnconfiguredChannel
 class ChannelAdapter:
     name: str
     def parse(self, payload: dict[str, Any]) -> list[IncomingMessage]: raise NotImplementedError
-    def sender(self, recipient: str, text: str) -> str: return UnconfiguredChannel(self.name).send(recipient, text)
+    def sender(self, recipient: str, text: str) -> Any: return UnconfiguredChannel(self.name).send(recipient, text)
     def poll(self) -> list: return []
 
 class WhatsAppCloudAdapter(ChannelAdapter):
