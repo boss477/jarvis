@@ -23,6 +23,27 @@ class FakeAdapter:
         self.sent.append((conversation_id, text))
         return DeliveryResult("whatsapp", conversation_id, True)
 
+class RetryingAdapter:
+    name = "whatsapp"
+
+    def __init__(self):
+        self.inbox = []
+        self.sent = []
+        self.outcomes = [False, True]
+
+    def poll(self):
+        items, self.inbox = self.inbox, []
+        return items
+
+    def send_message(self, conversation_id, text):
+        self.sent.append((conversation_id, text))
+        ok = self.outcomes.pop(0)
+        return DeliveryResult(
+            "whatsapp", conversation_id, ok,
+            message_id=f"sent-{len(self.sent)}",
+            detail="sent" if ok else "temporary provider failure",
+        )
+
 
 def test_runtime_processes_one_message_and_stops():
     hub = CommunicationHub(); adapter = FakeAdapter(); hub.register(adapter)
@@ -35,6 +56,38 @@ def test_runtime_processes_one_message_and_stops():
     runtime.stop()
     assert adapter.sent == [("c1", "done")]
     assert not runtime.running
+
+
+def test_poll_delivery_retry_reuses_cached_reply_after_restart(tmp_path):
+    history_path = tmp_path / "conversations.jsonl"
+    adapter = RetryingAdapter()
+    hub = CommunicationHub()
+    hub.register(adapter)
+    calls = []
+    handler = lambda message: calls.append(message.message_id) or "answer"
+    inbound = CommunicationMessage("whatsapp", "c1", "u1", "question", "wamid.poll-retry")
+
+    first_agent = PersistentActionAgent(hub, handler, history_path)
+    adapter.inbox = [inbound]
+    first = first_agent.process_once()
+
+    assert len(first) == 1
+    assert first[0].reply == "answer"
+    assert not first[0].delivery.ok
+
+    recovered_agent = PersistentActionAgent(hub, handler, history_path)
+    adapter.inbox = [inbound]
+    retry = recovered_agent.process_once()
+
+    assert len(retry) == 1
+    assert retry[0].reply == "answer"
+    assert retry[0].delivery.ok
+    assert adapter.sent == [("c1", "answer"), ("c1", "answer")]
+    assert calls == ["wamid.poll-retry"]
+
+    adapter.inbox = [inbound]
+    assert recovered_agent.process_once() == []
+    assert len(adapter.sent) == 2
 
 
 def test_runtime_stop_retains_live_thread_after_timeout():
