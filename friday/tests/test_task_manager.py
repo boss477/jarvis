@@ -571,4 +571,62 @@ def test_recovery_waits_for_active_task_execution_lock(tmp_path):
     assert outcomes.get(timeout=2) == []
     assert TaskManager(path).get(task.id).status == TaskStatus.COMPLETED
 
+def test_task_manager_compacts_append_only_history(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("repeat state changes", [{"tool": "send"}])
 
+    for _ in range(140):
+        manager.start(task.id)
+        manager.pause(task.id)
+
+    # 281 historical rows are reduced to the latest task snapshot plus the
+    # updates written since the most recent compaction.
+    assert len(path.read_text(encoding="utf-8").splitlines()) < 256
+    reloaded = TaskManager(path)
+    assert len(reloaded.list()) == 1
+    assert reloaded.get(task.id).status == TaskStatus.PAUSED
+    assert reloaded.get(task.id).prompt == "repeat state changes"
+
+
+def test_task_manager_compaction_preserves_latest_state_for_multiple_tasks(tmp_path):
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    tasks = [
+        manager.create(f"task {index}", [{"tool": "send"}])
+        for index in range(3)
+    ]
+
+    for _ in range(45):
+        for task in tasks:
+            manager.start(task.id)
+            manager.pause(task.id)
+
+    assert len(path.read_text(encoding="utf-8").splitlines()) < 256
+    reloaded = TaskManager(path)
+    assert len(reloaded.list()) == len(tasks)
+    for task in tasks:
+        restored = reloaded.get(task.id)
+        assert restored is not None
+        assert restored.prompt == task.prompt
+        assert restored.status == TaskStatus.PAUSED
+
+
+def test_task_manager_compaction_failure_does_not_fail_persistence(tmp_path, monkeypatch):
+    from friday.services import task_manager as task_manager_module
+
+    path = tmp_path / "tasks.jsonl"
+    manager = TaskManager(path)
+    task = manager.create("keep updates durable", [{"tool": "send"}])
+
+    def fail_replace(_source, _target):
+        raise OSError("temporary file is locked")
+
+    monkeypatch.setattr(task_manager_module.os, "replace", fail_replace)
+    for _ in range(130):
+        manager.start(task.id)
+        manager.pause(task.id)
+
+    restored = TaskManager(path).get(task.id)
+    assert restored is not None
+    assert restored.status == TaskStatus.PAUSED
