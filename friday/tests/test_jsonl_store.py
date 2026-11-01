@@ -1,5 +1,6 @@
 import errno
 from threading import Event, Thread
+from pathlib import Path
 
 import pytest
 
@@ -124,3 +125,22 @@ def test_windows_lock_propagates_non_contention_errors():
 
     assert exc_info.value.errno == errno.EBADF
     assert msvcrt.calls == 1
+
+
+def test_append_to_terminated_file_does_not_read_the_entire_history(tmp_path, monkeypatch):
+    path = tmp_path / "history.jsonl"
+    path.write_bytes(b"".join(
+        (f'{{"id":"record-{index}"}}\n').encode("utf-8")
+        for index in range(500)
+    ))
+    original_read_bytes = Path.read_bytes
+
+    def reject_full_read(target):
+        if target == path:
+            raise AssertionError("append read the entire JSONL history")
+        return original_read_bytes(target)
+
+    monkeypatch.setattr(Path, "read_bytes", reject_full_read)
+    jsonl_store.append_jsonl_record(path, {"id": "new"})
+    monkeypatch.setattr(Path, "read_bytes", original_read_bytes)
+    assert path.read_text(encoding="utf-8").splitlines()[-1] == '{"id": "new"}'
