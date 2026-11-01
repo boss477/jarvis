@@ -125,12 +125,6 @@ class PersistentActionAgent:
                         message.channel, message.conversation_id, False,
                         detail="duplicate delivery already in progress"))
                 delivery = self.hub.send(message.channel, message.conversation_id, duplicate_reply)
-                self._remember(key, CommunicationMessage(
-                    channel=message.channel, conversation_id=message.conversation_id,
-                    sender_id="agent", text=duplicate_reply, message_id=delivery.message_id,
-                    metadata={"direction": "outbound", "delivered": delivery.ok,
-                              "detail": delivery.detail, "retry": True},
-                ))
                 self.record_delivery(message, delivery.detail, delivery.ok)
                 return AgentReply(message, duplicate_reply, delivery)
             return AgentReply(message, duplicate_reply, DeliveryResult(
