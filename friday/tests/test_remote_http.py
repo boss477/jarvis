@@ -5,12 +5,12 @@ import http.client
 import threading
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-from friday.services.remote_http import MAX_WEBHOOK_BODY_BYTES, create_webhook_server
+from friday.services.remote_http import MAX_WEBHOOK_BODY_BYTES, create_webhook_server, _delivery_outcome
 from friday.services.remote_gateway import IncomingMessage, RemoteGateway
 from friday.services.task_commands import TaskCommandService
 from friday.services.task_manager import TaskManager
 from friday.services.action_agent import PersistentActionAgent
-from friday.services.communication_hub import CommunicationHub, CommunicationMessage
+from friday.services.communication_hub import CommunicationHub, CommunicationMessage, DeliveryResult
 
 def test_loopback_webhook_routes_authenticated_command(tmp_path):
     manager = TaskManager(tmp_path / "tasks.jsonl")
@@ -597,3 +597,14 @@ def test_pending_separates_safe_resume_from_uncertain_recovery(tmp_path):
         "Tasks interrupted during execution (outcome uncertain):", 1
     )[0]
     assert "outcome uncertain" not in safe_section
+
+
+def test_webhook_uses_structured_delivery_status():
+    delivery = DeliveryResult(
+        "whatsapp", "chat-1", False, detail="provider credentials are missing"
+    )
+
+    assert _delivery_outcome(delivery) == (
+        "provider credentials are missing",
+        False,
+    )
