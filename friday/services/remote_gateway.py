@@ -99,14 +99,30 @@ class RemoteGateway:
             if tasks:
                 lines.append("Reply /approve <task-id> to proceed or /deny <task-id> to cancel.")
             if recovery:
-                lines.append("Tasks interrupted during execution (outcome uncertain):")
-                for task in recovery:
-                    prompt = str(task["prompt"]).replace("\n", " ")[:120]
-                    lines.append(f"- {task['id']}: {prompt}")
-                lines.append(
-                    "Check each destination before retrying; the interrupted action was not "
-                    "replayed automatically. Use /check <task-id> for details."
-                )
+                safe_to_resume = [
+                    task for task in recovery if task.get("recovery_safe_to_resume")
+                ]
+                uncertain = [
+                    task for task in recovery if not task.get("recovery_safe_to_resume")
+                ]
+                if safe_to_resume:
+                    lines.append("Tasks paused safely before their next action:")
+                    for task in safe_to_resume:
+                        prompt = str(task["prompt"]).replace("\n", " ")[:120]
+                        lines.append(f"- {task['id']}: {prompt}")
+                    lines.append(
+                        "Use /resume <task-id> to continue these tasks; their next action "
+                        "had not started."
+                    )
+                if uncertain:
+                    lines.append("Tasks interrupted during execution (outcome uncertain):")
+                    for task in uncertain:
+                        prompt = str(task["prompt"]).replace("\n", " ")[:120]
+                        lines.append(f"- {task['id']}: {prompt}")
+                    lines.append(
+                        "Check each destination before retrying; the interrupted action was not "
+                        "replayed automatically. Use /check <task-id> for details."
+                    )
             return {"ok": True, "reply": "\n".join(lines)}
         handlers = {"/check": self.tasks.check, "/pause": self.tasks.pause,
                     "/resume": self.tasks.resume, "/cancel": self.tasks.cancel,
