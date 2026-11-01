@@ -171,6 +171,48 @@ def test_supervisor_terminates_running_host_on_stop_request(tmp_path, monkeypatc
     assert not stop_path.exists()
 
 
+
+def test_supervisor_terminates_host_when_output_thread_start_fails(tmp_path, monkeypatch):
+    state_path = tmp_path / "tasks.jsonl"
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    events = []
+
+    class RunningProcess:
+        pid = 9876
+
+        def __init__(self, *_args, **_kwargs):
+            self.returncode = None
+            self.stdout = io.StringIO("host output that will not be drained\\n")
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            events.append("terminate")
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            events.append("kill")
+            self.returncode = -9
+
+    class FailingThread:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("thread start failed")
+
+    monkeypatch.setattr(agent_supervisor.subprocess, "Popen", RunningProcess)
+    monkeypatch.setattr(agent_supervisor.threading, "Thread", FailingThread)
+
+    with pytest.raises(RuntimeError, match="thread start failed"):
+        run_supervisor(state_path)
+
+    assert events == ["terminate"]
+
 def test_supervisor_is_single_instance(tmp_path):
     first = AgentHostLock(tmp_path / "tasks.jsonl", suffix=".supervisor.lock")
     try:
