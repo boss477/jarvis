@@ -1,0 +1,19 @@
+# Local-only path filter in front of the agent and Twilio voice webhook.
+# Point the Cloudflare Tunnel public hostname to http://127.0.0.1:8769.
+:8769 {
+	bind 127.0.0.1
+
+	@whatsapp path /whatsapp
+	handle @whatsapp {
+		reverse_proxy 127.0.0.1:8767
+	}
+
+	@voice path /voice/incoming /voice/respond /voice/status
+	handle @voice {
+		reverse_proxy 127.0.0.1:8768
+	}
+
+	handle {
+		respond "not found" 404
+	}
+}
