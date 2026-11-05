@@ -262,6 +262,9 @@ def test_posted_claim_scopes_platforms_to_the_claim_clause_and_rejects_unknown_s
     assert controller._claim_matches_completed_action(
         task, "I posted it to LinkedIn. Want me to also post it on X?"
     )
+    assert controller._claim_matches_completed_action(
+        task, "I posted the X-ray report to LinkedIn."
+    )
     assert not controller._claim_matches_completed_action(
         task, "I posted the announcement to Bluesky."
     )
